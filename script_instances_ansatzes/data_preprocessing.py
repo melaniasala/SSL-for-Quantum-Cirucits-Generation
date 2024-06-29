@@ -31,7 +31,7 @@ def get_circuit_gates(circuit):
 def build_nx_graph_from_circuit(circuit):
     """
     Build a graph representation of a quantum circuit.
-    :param circuit: quantum circuit
+    :param circuit: QuantumCircuit object
     :return: networkx graph representing the circuit
     """
     # Create an empty graph
@@ -42,8 +42,11 @@ def build_nx_graph_from_circuit(circuit):
     last_nodes = {}
     node_positions = {}
 
+    # Extract circuit gates
+    circuit_gates = get_circuit_gates(circuit)
+
     # Iterate over the gates in the circuit
-    for i, gate in enumerate(circuit['gates']):
+    for i, gate in enumerate(circuit_gates['gates']):
         type = gate['gate_type']
         
         # If CNOT gate
@@ -138,9 +141,12 @@ def build_pyg_graph_from_circuit(circuit, include_params=False):
     edge_index = []
     last_nodes = {}
 
+    # Extract circuit gates
+    circuit_gates = get_circuit_gates(circuit)
+
     current_node_idx = 0
 
-    for i, gate in enumerate(circuit['gates']):
+    for i, gate in enumerate(circuit_gates['gates']):
         gate_type = gate['gate_type']
         
         if gate_type == 'cx':
