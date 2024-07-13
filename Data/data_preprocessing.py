@@ -7,6 +7,7 @@ import networkx as nx
 import qiskit.dagcircuit.dagnode as dagnode
 from qiskit.converters import circuit_to_dag
 from qiskit.transpiler.passes import RemoveBarriers
+from . import utilities
 
 
 
@@ -26,7 +27,7 @@ class QuantumCircuitGraph:
     Represents a quantum circuit as a directed graph using NetworkX.
     """
 
-    def __init__(self, circuit=None):
+    def __init__(self, circuit=None, include_params=False):
         """
         Initializes the graph representation of a quantum circuit.
         If a circuit is provided, builds the graph from the circuit.
@@ -42,6 +43,7 @@ class QuantumCircuitGraph:
         - node_mapping: dictionary mapping node_id to its index in the node_features matrix
         - node_feature_matrix: tensor containing the features of the nodes in the graph (one-hot encoded gate type and qubit type)
         (parameters can be included as well, but not implemented yet)
+        - n_node_features: number of features for each node in the graph
         - last_node_per_qubit: dictionary mapping qubit index to the last node in the graph that acts on that qubit
         """
         self.quantum_circuit = circuit
@@ -50,7 +52,12 @@ class QuantumCircuitGraph:
         self.node_ids = []
         self.node_mapping = {}
         self.node_feature_matrix = None
+        self.n_node_features = None
         self.last_node_per_qubit = {}
+
+        self.include_params = include_params
+        if self.include_params:
+            raise NotImplementedError('Including parameters in the node features is not implemented yet.')
 
         if circuit:
             self.build_from_circuit(circuit)
@@ -78,12 +85,11 @@ class QuantumCircuitGraph:
                 node_feature = self.build_node_features(gate_type, node_id, include_params, params)
                 node_features.append(node_feature)
 
-                self.node_mapping[node_id] = len(node_features) - 1
-
                 # Update the node_mapping dictionary
                 self.node_mapping[node_id] = len(node_features) - 1
 
         self.node_feature_matrix = torch.tensor(node_features, dtype=torch.float)
+        self.n_node_features = self.node_feature_matrix.size(1)
 
 
     def build_node_features(self, gate_type, node_id, include_params=False, params=None):
@@ -242,6 +248,19 @@ class QuantumCircuitGraph:
     #     encoded_sequence = torch.stack(encoded_sequence)
     #     return encoded_sequence
     
+
+    def encode_sequence(self, sequence_length=None, end_index=None, use_padding=True, padding_value=0.0):
+        """
+        Encodes a sequence of nodes into a tensor representation.
+        :param sequence_length: Maximum size of the sequence to encode (default is the full sequence)
+        :param end_index: Index of the last node in the sequence (exclusive)
+        :param use_padding: Whether to pad the sequence to the specified length
+        :param padding_value: Value to use for padding
+        :return: Tensor representation of the sequence
+        """
+        
+        return utilities.encode_sequence(self, sequence_length, end_index, use_padding, padding_value)
+        
 
 def extract_circuit_gates(circuit):
     """
@@ -493,34 +512,5 @@ def nx_graph_to_sequence(graph, random_start=True):
 
 
 
-def encode_sequence(graph, index=0):
-    """
-    Encode a sequence of nodes into a tensor representation: each node is represented by its feature vector.
-    :param graph: QuantumCircuitGraph object
-    :param index: index of the sequence till which the sequence is to be encoded. Default is 0, which means the entire sequence is encoded.
-    :return: tensor representation of the sequence
-    """
-    # Here no adjacency matrix is used, only the node features are used to encode the sequence. But the adjacency
-    # matrix could still conatin useful information about the connections between the nodes. So it can be included
-    # in the encoding, by two possible ways:
-    # - by concatenating the adjacency matrix to the node features
-    # - by 'filtering' the node features through the adjacency matrix, keeping only features of the nodes that are 
-    #   connected directly to current one
-    # - by using a GNN model that takes as input the adjacency matrix and the node features
 
-    # To Do: implement maximum size M. M is, given a node-distance d ranging from 1 to diam(G), the maximum
-    # cardinality of the set of nodes v_i such that their shortest-path distance to the first node v_1
-    # is equal to d
-
-    encoded_sequence = [] # list to store the encoded sequence
-    end_node_idx = index if index > 0 else len(graph.as_sequence)
-
-    for node_id in graph.as_sequence[:end_node_idx]:
-        node_idx = graph.node_mapping[node_id]
-        node_feature = graph.node_features[node_idx]
-        encoded_sequence.append(node_feature)
-    
-    # Convert the encoded sequence to a PyTorch tensor
-    encoded_sequence = torch.stack(encoded_sequence) 
-    return encoded_sequence
 
