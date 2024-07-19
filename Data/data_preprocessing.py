@@ -342,3 +342,20 @@ def nx_graph_to_sequence(graph, random_start=True):
 # --> take as input the pyg graph (or compute it inside the function) 
 # also the node_mapping can be computed inside build_pyg_graph_from_circuit, given the graph
 # better create a class that can manage all this? or just a function?
+
+
+def draw_ordering(quantum_circuit_graph, node_ids_ordered):
+    """
+    Draw the quantum circuit graph with the nodes ordered according to the given sequence of node IDs.
+    :param quantum_circuit_graph: QuantumCircuitGraph object
+    :param node_ids_ordered: List of node IDs in the order in which they should be drawn
+    """
+    # Ensure quantum_circuit_graph is a QuantumCircuitGraph object
+    if not isinstance(quantum_circuit_graph, QuantumCircuitGraph.QuantumCircuitGraph):
+        raise ValueError("quantum_circuit_graph parameter must be a QuantumCircuitGraph object")
+
+    # In ordering label we will have the index of the node in the ordered list
+    ordering_labels = {node_id:(node_ids_ordered.index(node_id)+1) for node_id in quantum_circuit_graph.graph.nodes}
+
+    # Draw the quantum circuit graph with each node with a label corresponding to its index in the ordered list
+    quantum_circuit_graph.draw(ordering_labels, default_node_size=True)
