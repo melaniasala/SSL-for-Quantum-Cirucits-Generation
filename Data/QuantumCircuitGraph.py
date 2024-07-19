@@ -4,7 +4,8 @@ import networkx as nx
 import torch
 import random
 import networkx as nx
-from . import data_preprocessing
+from .data_preprocessing import build_graph_from_circuit, encode_sequence
+from .data_preprocessing import GATE_TYPE_MAP
 
 
 class QuantumCircuitGraph:
@@ -119,15 +120,26 @@ class QuantumCircuitGraph:
 
         if order == 'bfs':
             start_node = random.choice(list(self.graph.nodes())) if random_start else list(self.graph.nodes())[0]
-            bfs_nodes = list(nx.bfs_nodes(self.graph, start_node))
+            # Perform BFS traversal
+            bfs_edges = nx.bfs_edges(self.graph, start_node) # edges in BFS order
+
+            # Extract nodes in BFS order from the edges
+            bfs_nodes = [start_node] # list to store nodes in BFS order
+            bfs_nodes_visited = {start_node}
+            for u, v in bfs_edges:
+                if v not in bfs_nodes_visited:
+                    bfs_nodes.append(v)
+                    bfs_nodes_visited.add(v)
             return bfs_nodes
         
         raise ValueError('Invalid order selected. Choose between "qc" and "bfs".')
     
 
-    def draw(self):
+    def draw(self, custom_labels=None, default_node_size=False):
         """
         Visualizes the quantum circuit graph using node positions and colors.
+
+        :param custom_labels: dictionary mapping node_id to custom labels for visualization
         """
         node_colors = {
             'cx': 'purple',
@@ -148,9 +160,12 @@ class QuantumCircuitGraph:
             't': '+'
         }
 
-        node_labels = {node: node_labels_map[self.graph.nodes[node]['type']] if self.graph.nodes[node]['type'] != 'cx' 
+        if custom_labels is None:
+            node_labels = {node: node_labels_map[self.graph.nodes[node]['type']] if self.graph.nodes[node]['type'] != 'cx' 
                                 else node_labels_map[self.graph.nodes[node]['ctrl_trgt']]
                                 for node in self.graph.nodes()}
+        else:
+            node_labels = custom_labels
 
         # nx.draw(self.graph,
         #         pos=self.node_positions,
@@ -172,7 +187,6 @@ class QuantumCircuitGraph:
             nodelist= [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'cx'],
             node_color=[node_colors[self.graph.nodes[node]['type']] for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'cx'], 
             node_shape='s',
-            #node_size=450,
             **options)
         
         nx.draw_networkx_nodes(
@@ -181,7 +195,7 @@ class QuantumCircuitGraph:
             nodelist= [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] == 'cx'],
             node_color=node_colors['cx'],
             node_shape='o',
-            node_size=100,
+            node_size=100 if not default_node_size else 300,
             **options)
 
         # edges
@@ -244,7 +258,7 @@ class QuantumCircuitGraph:
         :return: Tensor representation of the sequence
         """
         
-        return data_preprocessing.encode_sequence(self, sequence_length, end_index, use_padding, padding_value)
+        return encode_sequence(self, sequence_length, end_index, use_padding, padding_value)
         
 
 
