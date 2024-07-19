@@ -80,8 +80,8 @@ def qaoa_composer(my_qubo, n_layers=1, put_barriers=False, draw_circuit=False):
     non_zero_elements_coupling = np.count_nonzero(coupling)
     non_zero_elements_bias = np.count_nonzero(bias)
 
-    n_gamma = n_layers * (non_zero_elements_coupling // 2 + non_zero_elements_bias)
-    n_beta = n_layers * my_qubo.n
+    n_gamma = n_layers 
+    n_beta = n_layers
 
     gamma = ParameterVector('gamma', n_gamma)
     beta = ParameterVector('beta', n_beta)
@@ -101,25 +101,24 @@ def qaoa_composer(my_qubo, n_layers=1, put_barriers=False, draw_circuit=False):
         # Linear Terms
         for i in range(0, my_qubo.n):
             if my_ising.bias[i] != 0:
-                circuit.rz(my_ising.bias[i] * gamma[gamma_counter], i)
-                gamma_counter += 1
+                circuit.rz(my_ising.bias[i] * gamma[layer], i)
+                
 
         # Quadratic Terms
         for i in range(my_qubo.n):
             for j in range(i, my_qubo.n):
                 if i != j and my_ising.coupling[i, j] != 0:
                     circuit.cx(i, j)
-                    circuit.rz(2 * my_ising.coupling[i, j] * gamma[gamma_counter], j)
+                    circuit.rz(2 * my_ising.coupling[i, j] * gamma[layer], j)
                     circuit.cx(i, j)
-
-                    gamma_counter += 1
+                    
 
         if put_barriers:
             circuit.barrier()
 
         # -- MIXER UNITARY --
         for i in range(my_qubo.n):
-            circuit.rx(2 * beta[layer * my_qubo.n + i], i)
+            circuit.rx(2 * beta[layer], i)
 
         if put_barriers:
             circuit.barrier()
