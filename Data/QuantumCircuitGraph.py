@@ -39,6 +39,7 @@ class QuantumCircuitGraph:
         self.node_mapping = {}
         self.node_feature_matrix = None
         self.n_node_features = None
+        self.adjacency_matrix = None
         self.last_node_per_qubit = {}
 
         self.include_params = include_params
@@ -54,7 +55,8 @@ class QuantumCircuitGraph:
         Builds the graph representation of a quantum circuit, given a QuantumCircuit object.
         """
         self.graph, self.node_ids, self.last_node_per_qubit, self.node_positions = build_graph_from_circuit(circuit)
-        self.build_node_feature_matrix()  
+        self.build_node_feature_matrix()
+        self.build_adjacency_matrix()  
 
 
     def build_node_feature_matrix(self, include_params=False):
@@ -64,7 +66,7 @@ class QuantumCircuitGraph:
         The feature vector consists of the one-hot encoded gate type and qubit type (control, target, or neither).
         """
         node_features = []
-        for node_id in self.graph.nodes():
+        for node_id in self.node_ids:
             gate_type = self.graph.nodes[node_id]['type']
             if gate_type != 'barrier':
                 params = self.graph.nodes[node_id]['params']
@@ -76,6 +78,23 @@ class QuantumCircuitGraph:
 
         self.node_feature_matrix = torch.tensor(node_features, dtype=torch.float)
         self.n_node_features = self.node_feature_matrix.size(1)
+
+
+    def build_adjacency_matrix(self):
+        """
+        Builds the adjacency matrix (CSR format) of the quantum circuit graph.
+        """
+        # Extract the adjacency matrix in the node addition order
+        adj_matrix = nx.adjacency_matrix(self.graph)
+
+        # Create a mapping between self.node_ids and their corresponding indices in self.graph.nodes
+        node_order_mapping = {node: i for i, node in enumerate(self.graph.nodes)}
+        ordered_indices = [node_order_mapping[node] for node in self.node_ids]
+
+        # Reorder the rows and columns of the CSR matrix
+        reordered_adj_matrix = adj_matrix[ordered_indices, :][:, ordered_indices]
+
+        self.adjacency_matrix = reordered_adj_matrix
 
 
     def build_node_features(self, gate_type, node_id, include_params=False, params=None):
