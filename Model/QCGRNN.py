@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import numpy as np
 
 
 class QuantumCircuitGenerator(nn.Module):
@@ -19,27 +20,12 @@ class QuantumCircuitGenerator(nn.Module):
         
         # Define models
         self.f_CNN = ConditioningCNN(self.hidden_dim)
-        self.f_adder = self.build_adder()
+        self.f_adder = Adder(self.node_feature_dim, self.hidden_dim)
         self.f_gate_type = self.build_gate_type_predictor()
         self.f_CNOT = self.build_CNOT_predictor()
         self.f_graph_RNN = self.build_graph_RNN()
         self.f_stopper = self.build_stopper()
 
-    
-    def build_adder(self):
-        """
-        Build the model for adding nodes/gates to the circuit graph. 
-        This should output a single scalar value, which will be used as a probability of adding a node to the graph. The model should take the 
-        hidden state produced by the graph RNN as input, as well as the current state of the graph (e.g. node feature matrix and adjacency of 
-        last window_size nodes), and output the probability of adding a gate in the current layer of the circuit.
-
-        Placeholder for actual implementation.
-        """
-        return nn.Sequential(
-            nn.Linear(self.hidden_dim, self.hidden_dim),
-            nn.ReLU(),
-            nn.Linear(self.hidden_dim, self.node_feature_dim)
-        )
 
     def build_gate_type_predictor(self):
         """
@@ -132,7 +118,7 @@ class QuantumCircuitGenerator(nn.Module):
             if self.update_hidden_at_each_layer:
                 h = self.f_graph_RNN(h, graph_state)
     
-            sigma = self.f_stopper(h, graph_state)
+            sigma = self.f_stopper(h, graph_state, h_0)
             stop_token = self.sample_stop_action(sigma)
         
         return X, A
@@ -151,12 +137,15 @@ class QuantumCircuitGenerator(nn.Module):
             h = torch.zeros(batch_size, 1, self.hidden_dim)
         return h
 
-    def sample_add_action(self, h):
+    def sample_add_action(self, p):
         """
         Sample the action for adding a node.
-        Placeholder for actual implementation.
+        It simply samples from a Bernoulli distribution with parameter p.
+
+        :param p: probability of adding a node
+        :return: boolean value indicating whether to add a node (int)
         """
-        return 'sample ADD'
+        return np.random.binomial(1, p)
 
     def sample_gate_type(self, h):
         """
@@ -179,9 +168,6 @@ class QuantumCircuitGenerator(nn.Module):
         """
         return 'sample STOP'
 
-# Example usage:
-# quantum_circuit = QuantumCircuitGraph()
-# model = QuantumCircuitGenerator(node_feature_dim=quantum_circuit.n_node_features, hidden_dim=128, num_gate_types=len(GATE_TYPE_MAP))
 
 
 class ConditioningCNN(nn.Module):
@@ -212,3 +198,36 @@ class ConditioningCNN(nn.Module):
             nn.AdaptiveAvgPool2d((1, 1)), # Global average pooling
             nn.Conv2d(in_channels=64, out_channels=output_size, kernel_size=1, stride=1, padding=0) # 1x1 convolution to reduce the number of channels to output_size
         )
+    
+
+class Adder(nn.Module):
+    '''
+    Model for adding nodes to the circuit graph.
+    
+    The model should output a single scalar value, which will be used as a probability of adding a node to the graph. The model should take the
+    hidden state produced by the graph RNN as input, as well as the current state of the graph (e.g. node feature matrix and adjacency of last
+    window_size nodes), and output the probability of adding a gate in the current layer of the circuit.
+    The current state of the graph should be a tensor of shape (batch_size, window_size, node_feature_dim): then it makes sense to implement a RNN
+    with sequence length equal to the window_size, and input size equal to the node_feature_dim, to easily process the graph state as a matrix-like
+    structure and to mantain a notion of order in the nodes. The initial hidden state should be the hidden state produced by the graph RNN at the
+    previous step of the generation process.
+    '''
+
+    def __init__(self, node_feature_dim, hidden_dim):
+        super(Adder, self).__init__()
+        self.hidden_dim = hidden_dim
+        self.node_feature_dim = node_feature_dim
+
+        self.rnn = nn.RNN(self.node_feature_dim, self.hidden_dim, num_layers=1, batch_first=True)
+        self.fc = nn.Linear(self.hidden_dim, 1) # should output a single scalar value
+        self.sigomid = nn.Sigmoid() # to output a probability
+        
+
+    def forward(self, x, h):
+        """
+        Forward pass for the adder model.
+        :param h: hidden state produced by the graph RNN
+        :param x: current state of the graph
+        """
+        out, _ = self.rnn(x, h)
+        return self.sigmoid(self.fc(out)) 
