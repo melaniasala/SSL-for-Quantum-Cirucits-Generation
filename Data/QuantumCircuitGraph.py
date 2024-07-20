@@ -120,8 +120,12 @@ class QuantumCircuitGraph:
 
         if order == 'bfs':
             start_node = random.choice(list(self.graph.nodes())) if random_start else list(self.graph.nodes())[0]
+
+            # Convert to undirected graph to perform BFS
+            graph = self.graph.to_undirected()
+
             # Perform BFS traversal
-            bfs_edges = nx.bfs_edges(self.graph, start_node) # edges in BFS order
+            bfs_edges = nx.bfs_edges(graph, start_node) # edges in BFS order
 
             # Extract nodes in BFS order from the edges
             bfs_nodes = [start_node] # list to store nodes in BFS order
@@ -207,14 +211,14 @@ class QuantumCircuitGraph:
             arrowstyle= '-|>', arrowsize=10, arrows=True
         )
 
-        #draw edges for cx gates as undirected
+        #draw edges for cx gates as undirected (double directed edges)
         nx.draw_networkx_edges(
             self.graph,
             self.node_positions,
             edgelist=[(u, v) for u, v, data in self.graph.edges(data=True) if data['type'] == "cx"],
             width=2,
-            alpha=0.5,
-            edge_color='gray',
+            alpha=0.25,
+            edge_color='purple',
         )
 
 
