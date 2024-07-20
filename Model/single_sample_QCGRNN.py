@@ -29,7 +29,7 @@ class QuantumCircuitGenerator(nn.Module):
         self.f_gate_type = GatePredictor(self.node_feature_dim, self.hidden_dim, self.num_gate_types)
         # self.f_CNOT = self.build_CNOT_predictor()
         self.f_graph_RNN = GraphRNN(self.node_feature_dim, self.hidden_dim)
-        self.f_stopper = self.build_stopper()
+        self.f_stopper = Stopper(self.node_feature_dim, self.hidden_dim)
 
 
     # def build_CNOT_predictor(self):
@@ -372,3 +372,29 @@ class GraphRNN(nn.Module):
         """
         _, hidden = self.rnn(x, h)
         return hidden
+    
+
+class Stopper(nn.Module):
+    '''
+    Model for deciding when to stop adding nodes.
+    
+    The model should output a single scalar value, which will be used as a probability of stopping the generation process. The model should take the
+    hidden state produced by the graph RNN as input, as well as the current state of the graph (e.g. node feature matrix and adjacency of last
+    window_size nodes), and output the probability of stopping the generation process.
+    '''
+
+    def __init__(self, node_feature_dim, hidden_dim):
+        super(Stopper, self).__init__()
+        self.rnn = nn.RNN(self.node_feature_dim, self.hidden_dim*2, num_layers=1, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, 1) # should output a single scalar value
+        self.sigmoid = nn.Sigmoid() # to output a probability
+        
+
+    def forward(self, x, h, h_0):
+        """
+        Forward pass for the stopper model.
+        :param h: hidden state produced by the graph RNN
+        """
+        hidden = torch.cat((h, h_0), dim=1) # concatenate the hidden state produced by the graph RNN and the initial hidden state
+        out, _ = self.rnn(x, hidden)
+        return self.sigmoid(self.fc(out))
