@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import numpy as np
+from Data.data_preprocessing import GATE_TYPE_MAP
 
 
 class QuantumCircuitGenerator(nn.Module):
@@ -21,7 +22,7 @@ class QuantumCircuitGenerator(nn.Module):
         # Define models
         self.f_CNN = ConditioningCNN(self.hidden_dim)
         self.f_adder = Adder(self.node_feature_dim, self.hidden_dim)
-        self.f_gate_type = self.build_gate_type_predictor()
+        self.f_gate_type = GatePredictor(self.node_feature_dim, self.hidden_dim)
         self.f_CNOT = self.build_CNOT_predictor()
         self.f_graph_RNN = self.build_graph_RNN()
         self.f_stopper = self.build_stopper()
@@ -136,6 +137,8 @@ class QuantumCircuitGenerator(nn.Module):
             batch_size = conditioning.size(0)
             h = torch.zeros(batch_size, 1, self.hidden_dim)
         return h
+    
+    
 
     def sample_add_action(self, p):
         """
@@ -146,13 +149,25 @@ class QuantumCircuitGenerator(nn.Module):
         :return: boolean value indicating whether to add a node (int)
         """
         return np.random.binomial(1, p)
+    
+    
 
-    def sample_gate_type(self, h):
+    def sample_gate_type(self, p_vec):
         """
-        Sample the action for gate type.
-        Placeholder for actual implementation.
+        Sample the gate type.
+        It samples from a categorical distribution with parameters p_vec.
+
+        Notice that the last gate type in the mapping is always the identity gate, so this sampler can deal with both the case where the identity
+        gate is included in the gate types and the case where it is not. The only thing to do is to set correctly the number of gate types in the
+        GateSampler instance to include the identity gate or not; the sampler will automatically deal with both cases.
+
+        :param p_vec: probability distribution over the gate types
+        :return: selected gate type (int)
         """
-        return 'sample GATE_TYPE'
+        gate_types = list(GATE_TYPE_MAP.keys())[:len(p_vec)]
+        return np.random.choice(gate_types, p=p_vec)
+    
+    
 
     def sample_CNOT_action(self, h):
         """
@@ -199,6 +214,7 @@ class ConditioningCNN(nn.Module):
             nn.Conv2d(in_channels=64, out_channels=output_size, kernel_size=1, stride=1, padding=0) # 1x1 convolution to reduce the number of channels to output_size
         )
     
+    
 
 class Adder(nn.Module):
     '''
@@ -231,3 +247,30 @@ class Adder(nn.Module):
         """
         out, _ = self.rnn(x, h)
         return self.sigmoid(self.fc(out)) 
+    
+
+
+class GatePredictor(nn.Module):
+    '''
+    Model for predicting gate types.
+    
+    The model should output a vector of size num_gate_types, which will be used as a probability distribution over the gate types. The model should
+    take the hidden state produced by the graph RNN as input, as well as the current state of the graph (e.g. node feature matrix and adjacency of
+    last window_size nodes), and output the probability distribution over the gate types.
+    '''
+
+    def __init__(self, node_feature_dim, hidden_dim, num_gate_types):
+        super(GatePredictor, self).__init__()
+        self.rnn = nn.RNN(node_feature_dim, hidden_dim, num_layers=1, batch_first=True)
+        self.fc = nn.Linear(hidden_dim, num_gate_types) 
+        self.softmax = nn.Softmax() # to output a probability distribution over the gate types
+        
+
+    def forward(self, x, h):
+        """
+        Forward pass for the gate predictor model.
+        :param h: hidden state produced by the graph RNN
+        :param x: current state of the graph
+        """
+        out, _ = self.rnn(x, h)
+        return self.softmax(self.fc(out))
