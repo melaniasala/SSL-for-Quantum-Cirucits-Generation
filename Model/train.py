@@ -30,10 +30,10 @@ def train_single_sample(data, model, optimizer, criterion, teacher_forcing_ratio
             graph_state_t = model.update_graph_state(X, A, window_size)
                                                       
         if model.update_hidden_at_each_layer:
-            h_t = model.f_graph_RNN(h_t, graph_state_t)
+            h_t = model.f_graph_RNN(graph_state_t, h_t)
 
 
-        stop_param = Stopper(h_t, graph_data_t, h_0)
+        stop_param = model.f_stopper(graph_data_t, h_t, h_0)
         stop_token = model.sample_stop_action(stop_param)
 
         # compute loss over stop_param
