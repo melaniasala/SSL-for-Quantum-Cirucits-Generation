@@ -1,11 +1,14 @@
-from matplotlib import pyplot as plt
-import torch_geometric as tg
 import networkx as nx
 import torch
+import matplotlib.pyplot as plt
 import random
-import networkx as nx
-from .data_preprocessing import build_graph_from_circuit, encode_sequence
-from .data_preprocessing import GATE_TYPE_MAP
+from qiskit import QuantumRegister
+from qiskit.converters import circuit_to_dag, dag_to_circuit
+from qiskit.dagcircuit import DAGCircuit, DAGOpNode
+from qiskit.circuit.library.standard_gates import IGate
+from qiskit.circuit.barrier import Barrier
+from qiskit.transpiler.passes import RemoveBarriers
+from .data_preprocessing import GATE_TYPE_MAP, encode_sequence
 
 
 class QuantumCircuitGraph:
@@ -13,50 +16,86 @@ class QuantumCircuitGraph:
     Represents a quantum circuit as a directed graph using NetworkX.
     """
 
-    def __init__(self, circuit=None, include_params=False):
+    def __init__(self, circuit=None, include_params=False, include_identity_gates=False):
         """
         Initializes the graph representation of a quantum circuit.
         If a circuit is provided, builds the graph from the circuit.
 
         :param circuit: QuantumCircuit object
-
-        Attributes:
-        - quantum_circuit: QuantumCircuit object
-        - graph: networkx graph representing the quantum circuit
-        - node_positions: dictionary mapping node_id to its position for visualization
-        - node_ids: list of identifiers of the nodes in the graph, in the order imposed by dividing the circuit into 
-          layers and ordering the nodes in each layer according to the qubit index
-        - node_mapping: dictionary mapping node_id to its index in the node_features matrix
-        - node_feature_matrix: tensor containing the features of the nodes in the graph (one-hot encoded gate type and qubit type)
-        (parameters can be included as well, but not implemented yet)
-        - n_node_features: number of features for each node in the graph
-        - last_node_per_qubit: dictionary mapping qubit index to the last node in the graph that acts on that qubit
+        :param include_params: Whether to include parameters in the node features (not implemented yet)
+        :param include_identity_gates: Whether to include identity gates in the circuit
         """
         self.quantum_circuit = circuit
         self.graph = nx.DiGraph()
-        self.node_positions = {}
-        self.node_ids = []
-        self.node_mapping = {}
-        self.node_feature_matrix = None
-        self.n_node_features = None
+        self.node_positions = {} # dictionary mapping node_id to its position in the graph for visualization
+        self.node_ids = [] # list of node_ids in the graph (in in the order imposed by dividing the circuit into 
+        # layers and ordering the nodes in each layer according to the qubit index)
+        self.node_mapping = {} # dictionary mapping node_id to its index in the node_features matrix
+        self.node_feature_matrix = None # tensor containing the features of the nodes in the graph
+        self.n_node_features = None 
         self.adjacency_matrix = None
         self.last_node_per_qubit = {}
 
         self.include_params = include_params
+        self.include_identity_gates = include_identity_gates
+
         if self.include_params:
             raise NotImplementedError('Including parameters in the node features is not implemented yet.')
 
         if circuit:
             self.build_from_circuit(circuit)
 
+
+    def insert_identity_gates(self, circuit):
+        """
+        Inserts identity gates in the circuit to create a grid-like structure.
+        """
+        n_qubits = circuit.num_qubits
+        remove_barriers = RemoveBarriers()
+
+        circuit_no_barriers = remove_barriers(circuit)
+        dag = circuit_to_dag(circuit_no_barriers)
+        layers = list(dag.multigraph_layers())[1:-1]
+        
+        new_layers = []
+
+        for layer in layers:
+            identities = []
+            active_qubits_in_layer = [qubit.index for gate in layer if isinstance(gate, DAGOpNode) for qubit in gate.qargs]
+            ops_in_layer = [gate for gate in layer if isinstance(gate, DAGOpNode)]
+            for q in range(n_qubits):
+                if q not in active_qubits_in_layer:
+                    # Add an identity gate in correspondence to the qubit not having gates in the layer
+                    id_gate = IGate()
+                    id_dag_node = DAGOpNode(id_gate, qargs=[QuantumRegister(n_qubits, 'q')[q]], cargs=[])
+                    identities.append(id_dag_node)
+            
+            new_layers.append(ops_in_layer + identities)
+
+        new_dag = DAGCircuit()
+        qr = QuantumRegister(n_qubits, 'q')
+        new_dag.add_qreg(qr)
+
+        for layer in new_layers:
+            for gate in layer:
+                new_dag.apply_operation_back(gate.op, gate.qargs, gate.cargs)
+            # add barrier between layers for better visualization
+            barrier_op = Barrier(num_qubits=n_qubits) 
+            new_dag.apply_operation_back(barrier_op, qr, [])
+
+        new_circuit = dag_to_circuit(new_dag)
+        return new_circuit
+
     
     def build_from_circuit(self, circuit):
         """
         Builds the graph representation of a quantum circuit, given a QuantumCircuit object.
         """
-        self.graph, self.node_ids, self.last_node_per_qubit, self.node_positions = build_graph_from_circuit(circuit)
+        if self.include_identity_gates:
+            circuit = self.insert_identity_gates(circuit)
+        self.graph, self.node_ids, self.last_node_per_qubit, self.node_positions = self.build_graph_from_circuit(circuit)
         self.build_node_feature_matrix()
-        self.build_adjacency_matrix()  
+        self.build_adjacency_matrix()
 
 
     def build_node_feature_matrix(self, include_params=False):
@@ -108,9 +147,12 @@ class QuantumCircuitGraph:
         :return: Node feature vector
         """
         qubit_type_map = {'control': 0, 'target': 1}
-        feature_vector = [0] * len(GATE_TYPE_MAP) + [0] * len(qubit_type_map)
+        num_gate_types = len(GATE_TYPE_MAP) - 1 if not self.include_identity_gates else len(GATE_TYPE_MAP)
+        feature_vector = [0] * num_gate_types + [0] * len(qubit_type_map)
 
-        feature_vector[GATE_TYPE_MAP[gate_type]] = 1  # one-hot encoding of gate type
+        # not needed, if self.include_identity_gates is False there won't be any identity gates in the graph
+        # if self.include_identity_gates or gate_type != 'id':
+        #     feature_vector[GATE_TYPE_MAP[gate_type]] = 1  # one-hot encoding of gate type
 
         # one-hot encoding of target/control
         if 'control' in node_id:
@@ -171,6 +213,7 @@ class QuantumCircuitGraph:
             'ry': 'yellow',
             'rz': 'blue',
             'x': 'orange',
+            'id': 'grey',
         }
 
         node_labels_map = {
@@ -180,7 +223,8 @@ class QuantumCircuitGraph:
             'rz': 'Rz',
             'x': 'X',
             'c': ' ',
-            't': '+'
+            't': '+',
+            'id': 'I'
         }
 
         if custom_labels is None:
