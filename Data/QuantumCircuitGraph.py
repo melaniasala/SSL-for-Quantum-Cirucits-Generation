@@ -8,7 +8,7 @@ from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from qiskit.circuit.library.standard_gates import IGate
 from qiskit.circuit.barrier import Barrier
 from qiskit.transpiler.passes import RemoveBarriers
-from .data_preprocessing import GATE_TYPE_MAP, encode_sequence
+from .data_preprocessing import GATE_TYPE_MAP, encode_sequence, build_graph_from_circuit
 
 
 class QuantumCircuitGraph:
@@ -16,7 +16,7 @@ class QuantumCircuitGraph:
     Represents a quantum circuit as a directed graph using NetworkX.
     """
 
-    def __init__(self, circuit=None, include_params=False, include_identity_gates=False):
+    def __init__(self, circuit=None, include_params=False, include_identity_gates=False, differentiate_cx=False):
         """
         Initializes the graph representation of a quantum circuit.
         If a circuit is provided, builds the graph from the circuit.
@@ -24,6 +24,7 @@ class QuantumCircuitGraph:
         :param circuit: QuantumCircuit object
         :param include_params: Whether to include parameters in the node features (not implemented yet)
         :param include_identity_gates: Whether to include identity gates in the circuit
+        :param differentiate_cx: Whether to differentiate control and target qubits of a cx gate in node features
         """
         self.quantum_circuit = circuit
         self.graph = nx.DiGraph()
@@ -38,6 +39,7 @@ class QuantumCircuitGraph:
 
         self.include_params = include_params
         self.include_identity_gates = include_identity_gates
+        self.differentiate_cx = differentiate_cx
 
         if self.include_params:
             raise NotImplementedError('Including parameters in the node features is not implemented yet.')
@@ -61,7 +63,7 @@ class QuantumCircuitGraph:
 
         for layer in layers:
             identities = []
-            active_qubits_in_layer = [qubit.index for gate in layer if isinstance(gate, DAGOpNode) for qubit in gate.qargs]
+            active_qubits_in_layer = [qubit._index for gate in layer if isinstance(gate, DAGOpNode) for qubit in gate.qargs]
             ops_in_layer = [gate for gate in layer if isinstance(gate, DAGOpNode)]
             for q in range(n_qubits):
                 if q not in active_qubits_in_layer:
@@ -93,7 +95,7 @@ class QuantumCircuitGraph:
         """
         if self.include_identity_gates:
             circuit = self.insert_identity_gates(circuit)
-        self.graph, self.node_ids, self.last_node_per_qubit, self.node_positions = self.build_graph_from_circuit(circuit)
+        self.graph, self.node_ids, self.last_node_per_qubit, self.node_positions = build_graph_from_circuit(circuit)
         self.build_node_feature_matrix()
         self.build_adjacency_matrix()
 
@@ -148,17 +150,19 @@ class QuantumCircuitGraph:
         """
         qubit_type_map = {'control': 0, 'target': 1}
         num_gate_types = len(GATE_TYPE_MAP) - 1 if not self.include_identity_gates else len(GATE_TYPE_MAP)
-        feature_vector = [0] * num_gate_types + [0] * len(qubit_type_map)
+        feature_vector = [0] * (num_gate_types + (len(qubit_type_map) if self.differentiate_cx else 0))
 
         # not needed, if self.include_identity_gates is False there won't be any identity gates in the graph
         # if self.include_identity_gates or gate_type != 'id':
-        #     feature_vector[GATE_TYPE_MAP[gate_type]] = 1  # one-hot encoding of gate type
+        
+        feature_vector[GATE_TYPE_MAP[gate_type]] = 1  # one-hot encoding of gate type
 
         # one-hot encoding of target/control
-        if 'control' in node_id:
-            feature_vector[len(GATE_TYPE_MAP) + qubit_type_map['control']] = 1
-        elif 'target' in node_id:
-            feature_vector[len(GATE_TYPE_MAP) + qubit_type_map['target']] = 1
+        if self.differentiate_cx:
+            if 'control' in node_id:
+                feature_vector[num_gate_types + qubit_type_map['control']] = 1
+            elif 'target' in node_id:
+                feature_vector[num_gate_types + qubit_type_map['target']] = 1
 
         if include_params and params is not None:
             feature_vector += params
