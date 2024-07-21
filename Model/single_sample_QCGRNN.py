@@ -26,7 +26,7 @@ class QuantumCircuitGenerator(nn.Module):
         # Define models
         self.f_CNN = ConditioningCNN(self.hidden_dim)
         self.f_adder = Adder(self.node_feature_dim, self.hidden_dim)
-        self.f_gate_type = GatePredictor(self.node_feature_dim, self.hidden_dim, self.num_gate_types)
+        self.f_gate_predictor = GatePredictor(self.node_feature_dim, self.hidden_dim, self.num_gate_types)
         # self.f_CNOT = self.build_CNOT_predictor()
         self.f_graph_RNN = GraphRNN(self.node_feature_dim, self.hidden_dim)
         self.f_stopper = Stopper(self.node_feature_dim, self.hidden_dim)
@@ -64,7 +64,7 @@ class QuantumCircuitGenerator(nn.Module):
         """
         return nn.Linear(self.hidden_dim, 1)
 
-    def forward(self, graph_state, h, data, qubit, layer, num_qubits):
+    def forward(self, graph_state, h):
         """
         Forward pass for generating a quantum circuit.
         The model generates a quantum circuit for a given QUBO problem instance, conditioned on the QUBO matrix.
@@ -73,7 +73,7 @@ class QuantumCircuitGenerator(nn.Module):
         :param qubo_data: QUBO matrix and number of qubits tuple
         """
         # # Unpack data tuples
-        X, A = data.x, data.edge_index
+        #X, A = data.x, data.edge_index
         # Q, num_qubits = qubo_data 
   
         # stop_token = False
@@ -99,34 +99,34 @@ class QuantumCircuitGenerator(nn.Module):
         # dict to store parameters values
         # generation_params = {}
 
-        # alpha = self.f_adder(h, graph_state)
+        # alpha = self.f_adder(graph_state, h)
         # generation_params['alpha'] = alpha
         # add = self.sample_add_action(alpha)
 
         # if add:
-        #     gamma = self.f_gate_type(h, graph_state)
+        #     gamma = self.f_gate_type(graph_state, h)
         #     gate_type = self.sample_gate_type(gamma)
         # else:
         #     gate_type = 'i' # identity gate
 
-        gamma = self.f_gate_type(h, graph_state)
-        gate_type = self.sample_gate_type(gamma)
+        gamma = self.f_gate_predictor(graph_state, h)
+        # gate_type = self.sample_gate_type(gamma)
 
-        X = self.update_node_features(X, gate_type)
-        A = self.update_adjacency(A, qubit, layer, num_qubits)
-        data = Data(x=X, edge_index=A)
+        # X = self.update_node_features(data.x, gate_type)
+        # A = self.update_adjacency(data.edge_index, qubit, layer, num_qubits)
+        # data = Data(x=X, edge_index=A)
         
-        if self.update_graph_at_each_addition:
-            graph_state = self.update_graph_state(X, A, self.window_size)
+        # if self.update_graph_at_each_addition:
+        #     graph_state = self.update_graph_state(data, self.window_size)
 
         if self.update_hidden_at_each_addition:
-            h = self.f_graph_RNN(h, graph_state)
+            h = self.f_graph_RNN(graph_state, h)
 
             # if self.update_graph_at_each_layer:
             #     graph_state = self.update_graph_state(X, A, self.window_size)
                                                       
             # if self.update_hidden_at_each_layer:
-            #     h = self.f_graph_RNN(h, graph_state)
+            #     h = self.f_graph_RNN(graph_state, h)
 
         ##########################################
         # also stopper should be included in the training/inference loop
@@ -134,7 +134,7 @@ class QuantumCircuitGenerator(nn.Module):
             # sigma = self.f_stopper(h, graph_state, h_0)
             # stop_token = self.sample_stop_action(sigma)
         
-        return graph_state, h, data, gamma
+        return graph_state, h, gamma
 
 
     def init_hidden_state(self, conditioning=None):
@@ -143,11 +143,11 @@ class QuantumCircuitGenerator(nn.Module):
         If conditioning is provided, use it to initialize the hidden state.
         Else, initialize it as zeros.
         """
-        if conditioning:
+        if conditioning is not None:
             h = self.f_CNN(conditioning)
         else:
             #batch_size = conditioning.size(0)
-            h = torch.zeros(1, self.hidden_dim)
+            h = torch.zeros(1, 1, self.hidden_dim) #
         return h
     
     
@@ -160,7 +160,13 @@ class QuantumCircuitGenerator(nn.Module):
         :param p: probability of adding a node
         :return: boolean value indicating whether to add a node (int)
         """
-        return np.random.binomial(1, p)
+        bernoulli = torch.distributions.Bernoulli(p)
+    
+        # Sample from the distribution
+        sample = bernoulli.sample().item()
+        
+        # Convert the sample to an integer (0 or 1)
+        return int(sample)
     
     
 
@@ -177,7 +183,17 @@ class QuantumCircuitGenerator(nn.Module):
         :return: selected gate type (int)
         """
         gate_types = list(GATE_TYPE_MAP.keys())[:len(p_vec)]
-        return np.random.choice(gate_types, p=p_vec)
+
+        print(p_vec)
+        
+        # Convert p_vec to a torch tensor if it is not already
+        if not isinstance(p_vec, torch.Tensor):
+            p_vec = torch.tensor(p_vec)
+        
+        categorical = torch.distributions.Categorical(probs=p_vec)
+        sampled_gate_type_index = categorical.sample() # sample a gate type index
+
+        return gate_types[sampled_gate_type_index]
     
     
 
@@ -218,7 +234,7 @@ class QuantumCircuitGenerator(nn.Module):
 
 
 
-    def update_adjacency(self, A, qubit, curr_layer, num_qubits):
+    def update_adjacency(self, A, info):
         """
         Update the adjacency matrix.
         In PyTorch Geometric, the adjacency matrix is represented in COO format, i.e. a tensor with shape (2, num_edges), that is num_edges
@@ -230,6 +246,8 @@ class QuantumCircuitGenerator(nn.Module):
 
         :return: updated adjacency matrix
         """
+        curr_layer, qubit, layer, num_qubits = info
+
         # A: (2, num_edges)
         # Add an edge from the qubit-th node in the previous layer to the new node (qubit-th node in the current layer)
         idx_curr_node = A.size(1) # the index of new node is the number of edges in the graph
@@ -240,7 +258,7 @@ class QuantumCircuitGenerator(nn.Module):
         
 
 
-    def update_graph_state(self, X, A, window_size):
+    def update_graph_state(self, data, window_size):
         """
         Update the graph state.
         It keeps track of the last window_size nodes added to the graph, by keeping the last window_size rows of the node feature matrix.
@@ -255,18 +273,38 @@ class QuantumCircuitGenerator(nn.Module):
 
         :return: updated graph state (window_size, node_feature_dim)
         """
+        X, A = data.x, data.edge_index
         return X[-window_size:, :]
+
+
+    def update_graph_data(self, data, gate_type, current_info):
+        """
+        Update the graph data.
+        It updates the graph data structure with the new node added to the graph.
+
+        :param data: current graph data
+        :param gate_type: gate type to be added (str)
+        :param current_info: tuple containing information about the current node to be added
+
+        :return: updated graph data
+        """
+        X = self.update_node_features(data.x, gate_type)
+        A = self.update_adjacency(data.edge_index, current_info)
+  
+        return Data(x=X, edge_index=A)
 
 
 
 class ConditioningCNN(nn.Module):
     def __init__(self, output_size):
         super(ConditioningCNN, self).__init__()
+        self.output_size = output_size
         self.model = self.build_CNN(output_size)
 
     def forward(self, x):
         latent_representation = self.model(x)
-        return latent_representation.view(latent_representation.size(0), 1, -1) # flatten the output tensor to (batch_size, 1, output_size)
+        batch_size = latent_representation.size(0)
+        return latent_representation.view(batch_size, 1, self.output_size) # flatten the output tensor to (batch_size, 1, output_size)
 
     def build_CNN(self, output_size):
         """
@@ -337,7 +375,8 @@ class GatePredictor(nn.Module):
         super(GatePredictor, self).__init__()
         self.rnn = nn.RNN(node_feature_dim, hidden_dim, num_layers=1, batch_first=True)
         self.fc = nn.Linear(hidden_dim, num_gate_types) 
-        self.softmax = nn.Softmax() # to output a probability distribution over the gate types
+        self.softmax = nn.Softmax(dim=1) # to output a probability distribution over the gate types
+            
         
 
     def forward(self, x, h):
@@ -385,7 +424,7 @@ class Stopper(nn.Module):
 
     def __init__(self, node_feature_dim, hidden_dim):
         super(Stopper, self).__init__()
-        self.rnn = nn.RNN(self.node_feature_dim, self.hidden_dim*2, num_layers=1, batch_first=True)
+        self.rnn = nn.RNN(node_feature_dim, hidden_dim*2, num_layers=1, batch_first=True)
         self.fc = nn.Linear(hidden_dim, 1) # should output a single scalar value
         self.sigmoid = nn.Sigmoid() # to output a probability
         
