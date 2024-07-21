@@ -15,7 +15,7 @@ GATE_TYPE_MAP = {
     'rz': 4,
     'x': 5,
     # Add here all possible gate types
-    'i': 6 # do not move from last position in the mapping
+    'id': 6 # do not move from last position in the mapping
 } # map gate type to index
 
 INV_GATE_TYPE_MAP = {v: k for k, v in GATE_TYPE_MAP.items()} # map index to gate type
