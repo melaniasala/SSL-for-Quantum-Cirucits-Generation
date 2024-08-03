@@ -8,7 +8,7 @@ from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from qiskit.circuit.library.standard_gates import IGate
 from qiskit.circuit.barrier import Barrier
 from qiskit.transpiler.passes import RemoveBarriers
-from .data_preprocessing import GATE_TYPE_MAP, encode_sequence, build_graph_from_circuit
+from .data_preprocessing import GATE_TYPE_MAP, encode_sequence, build_graph_from_circuit, draw_circuit_and_graph
 
 
 class QuantumCircuitGraph:
@@ -204,11 +204,13 @@ class QuantumCircuitGraph:
         raise ValueError('Invalid order selected. Choose between "qc" and "bfs".')
     
 
-    def draw(self, custom_labels=None, default_node_size=False):
+    def draw(self, custom_labels=None, default_node_size=False, ax=None):
         """
         Visualizes the quantum circuit graph using node positions and colors.
 
         :param custom_labels: dictionary mapping node_id to custom labels for visualization
+        :param default_node_size: boolean indicating whether to use the default node size
+        :param ax: matplotlib axes object to draw the graph on
         """
         node_colors = {
             'cx': 'purple',
@@ -216,7 +218,9 @@ class QuantumCircuitGraph:
             'rx': 'red',
             'ry': 'yellow',
             'rz': 'blue',
-            'x': 'orange',
+            'x': 'pink',
+            'y': 'orange',
+            'z': 'cyan',
             'id': 'grey',
         }
 
@@ -226,6 +230,8 @@ class QuantumCircuitGraph:
             'ry': 'Ry',
             'rz': 'Rz',
             'x': 'X',
+            'y': 'Y',
+            'z': 'Z',
             'c': ' ',
             't': '+',
             'id': 'I'
@@ -238,18 +244,10 @@ class QuantumCircuitGraph:
         else:
             node_labels = custom_labels
 
-        # nx.draw(self.graph,
-        #         pos=self.node_positions,
-        #         with_labels=True,
-        #         labels=node_labels,
-        #         node_color=[node_colors[self.graph.nodes[node]['type']] for node in self.graph.nodes()],
-        #         edge_color='black',
-        #         arrowstyle="->",
-        #         arrowsize=10
-        #         )
-        
-        plt.figure(figsize=(15, 4))
-        
+        if ax is None:
+            plt.figure(figsize=(15, 4))
+            ax = plt.gca() # get current axes
+
         # nodes
         options = {"alpha": 0.95}
         nx.draw_networkx_nodes(
@@ -302,6 +300,7 @@ class QuantumCircuitGraph:
         
         plt.tight_layout()
         plt.axis("off")
+        plt.title("Graph representation of the Quantum Circuit")
         plt.show()
     
         # def encode_sequence(self, sequence):
@@ -330,6 +329,27 @@ class QuantumCircuitGraph:
         """
         
         return encode_sequence(self, sequence_length, end_index, use_padding, padding_value)
+    
+
+    # define a method to draw both the circuit and the correspondent graph
+    def draw_circuit_and_graph(self, circuit_like_graph=False):
+        """
+        Visualizes the quantum circuit and its graph representation side by side.
+        """
+        if circuit_like_graph: 
+            fig, axes = plt.subplots(1, 2, figsize=(14, 7))
+            
+            self.quantum_circuit.draw(output='mpl', ax=axes[0])
+            axes[0].set_title("Quantum Circuit")
+        
+            self.draw(ax=axes[1])
+            axes[1].set_title("Graph representation of the Quantum Circuit")
+            
+            # Display the combined plot
+            plt.show()
+
+        else:
+            draw_circuit_and_graph((self.quantum_circuit, self.graph))
         
 
 

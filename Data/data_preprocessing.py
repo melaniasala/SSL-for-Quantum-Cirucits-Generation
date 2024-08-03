@@ -1,4 +1,5 @@
 import random
+from matplotlib import pyplot as plt
 import torch
 import networkx as nx
 import qiskit.dagcircuit.dagnode as dagnode
@@ -14,8 +15,10 @@ GATE_TYPE_MAP = {
     'ry': 3, 
     'rz': 4,
     'x': 5,
+    'y': 6,
+    'z': 7,
     # Add here all possible gate types
-    'id': 6 # do not move from last position in the mapping
+    'id': 8 # do not move from last position in the mapping
 } # map gate type to index
 
 INV_GATE_TYPE_MAP = {v: k for k, v in GATE_TYPE_MAP.items()} # map index to gate type
@@ -360,3 +363,48 @@ def draw_ordering(quantum_circuit_graph, node_ids_ordered):
 
     # Draw the quantum circuit graph with each node with a label corresponding to its index in the ordered list
     quantum_circuit_graph.draw(ordering_labels, default_node_size=True)
+
+
+def draw_circuit_and_graph(circuit_graph_tuple, axs=None):
+    """
+    Draws a Qiskit QuantumCircuit and a NetworkX graph side by side.
+    
+    Parameters:
+    circuit_graph_tuple (tuple): A tuple containing a Qiskit QuantumCircuit and a NetworkX graph.
+    """
+    quantum_circuit, graph = circuit_graph_tuple
+    
+    if axs is None:
+        fig, axes = plt.subplots(1, 2, figsize=(14, 7))
+    else:
+        axes = axs
+
+    node_labels_map = {
+            'h': 'H',
+            'rx': 'Rx',
+            'ry': 'Ry',
+            'rz': 'Rz',
+            'x': 'X',
+            'y': 'Y',
+            'z': 'Z',
+            'c': ' ',
+            't': '+',
+            'id': 'I'
+        }
+
+    labels = {node: node_labels_map[graph.nodes[node]['type']] if graph.nodes[node]['type'] != 'cx' 
+                else node_labels_map[graph.nodes[node]['ctrl_trgt']]
+                for node in graph.nodes()}
+    
+    # Draw the QuantumCircuit
+    quantum_circuit.draw(output='mpl', ax=axes[0])
+    axes[0].set_title("Quantum Circuit")
+    
+    # Draw the NetworkX graph
+    pos = nx.spring_layout(graph)  # Position nodes using Fruchterman-Reingold force-directed algorithm
+    nx.draw(graph, pos, with_labels=True, ax=axes[1], font_size=10, labels=labels)
+    axes[1].set_title("Graph")
+    
+    if axs is None:
+        plt.tight_layout()
+        plt.show()
