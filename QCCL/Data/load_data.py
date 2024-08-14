@@ -41,7 +41,7 @@ def collect_from_dict(dictionary):
         elif isinstance(v, list):
             if all(isinstance(item, list) for item in v):  # if list of lists
                 graphs.extend(v)
-                print(f"\tCollected {len(v)} items from {k}.")
+                print(f"\tCollected {len(v)} samples from {k}.")
             elif all(isinstance(item, tuple) for item in v):  # if list of tuples
                 graphs.append(v)
                 print(f"\tCollected 1 sample from {k}.")

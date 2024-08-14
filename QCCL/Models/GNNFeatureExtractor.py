@@ -13,7 +13,7 @@ pooling_strategies = {
 
 
 class GNNFeatureExtractor(nn.Module):
-    def __init__(self, in_channels, out_channels, pooling_strategy='graph_avg'):
+    def __init__(self, in_channels, out_channels, pooling_strategy='global_avg'):
         super(GNNFeatureExtractor, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -30,7 +30,7 @@ class GNNFeatureExtractor(nn.Module):
 
 
 class GCNFeatureExtractor(GNNFeatureExtractor):
-    def __init__(self, in_channels, out_channels, pooling_strategy):
+    def __init__(self, in_channels, out_channels, pooling_strategy='global_avg'):
         super(GCNFeatureExtractor, self).__init__(in_channels, out_channels, pooling_strategy)
         self.conv1 = gnn.GCNConv(in_channels, 2 * out_channels)
         self.conv2 = gnn.GCNConv(2 * out_channels, out_channels)
