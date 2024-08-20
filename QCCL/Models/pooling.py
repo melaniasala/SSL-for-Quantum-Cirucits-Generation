@@ -2,6 +2,15 @@ import torch
 from torch_geometric.utils import degree
 import torch_geometric.nn as gnn
 
+
+def global_mean_pool(x, batch, edge_index):
+    return gnn.global_mean_pool(x, batch)
+
+
+def global_max_pool(x, batch, edge_index):
+    return gnn.global_max_pool(x, batch)
+    
+
 def extract_last_nodes(x, batch, row, col):
     """
     Extract the last nodes of each graph in a batch.
@@ -13,10 +22,10 @@ def extract_last_nodes(x, batch, row, col):
     # - it has no outgoing edges (out_degree == 0)
     # - it has both an outgoing and incoming edge to the same node 
     # Both conditions can be combined into a single condition: in_degree == out_degree+1
-    last_nodes_mask = (in_degree == out_degree+1)  
+    last_nodes_mask = (in_degree == out_degree+1) | (out_degree == 0) 
     x_last = x[last_nodes_mask]
     batch_last = batch[last_nodes_mask]
-    return x_last,batch_last
+    return x_last, batch_last
 
 
 def last_nodes_add_pool(x, batch, edge_index):

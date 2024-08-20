@@ -18,7 +18,7 @@ def train(model, dataset, epochs=100, batch_size=32, lr=1e-3, device='cuda'):
             graph1 = graph1.to(device)
             graph2 = graph2.to(device)
             optimizer.zero_grad()
-
+            
             z1 = model(graph1.x, graph1.edge_index, graph1.batch)
             z2 = model(graph2.x, graph2.edge_index, graph2.batch)
             

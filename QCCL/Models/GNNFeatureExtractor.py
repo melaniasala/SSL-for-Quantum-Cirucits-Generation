@@ -1,12 +1,12 @@
 import torch
-from .pooling import last_nodes_mean_pool, last_nodes_max_pool
+from .pooling import last_nodes_mean_pool, last_nodes_max_pool, global_mean_pool, global_max_pool
 import torch.nn as nn
 import torch_geometric.nn as gnn
 
 
 pooling_strategies = {
-            'global_avg': gnn.global_mean_pool,
-            'global_max': gnn.global_max_pool,
+            'global_avg': global_mean_pool,
+            'global_max': global_max_pool,
             'last_avg': last_nodes_mean_pool,
             'last_max': last_nodes_max_pool
         }
@@ -37,8 +37,10 @@ class GCNFeatureExtractor(GNNFeatureExtractor):
 
 
     def forward(self, x, edge_index, batch):
+        if x is None:  # Check if x is None
+            raise ValueError("x should not be None")
         x = self.conv1(x, edge_index)
         x = torch.relu(x)
         x = self.conv2(x, edge_index)
-        x = self.pooling_layer(x, batch)
+        x = self.pooling_layer(x, batch, edge_index)
         return x
