@@ -10,7 +10,7 @@ pooling_strategies = {
             'last_avg': last_nodes_mean_pool,
             'last_max': last_nodes_max_pool
         }
-
+    
 
 # wrapper class for CL model (nn.Sequential) is not compatible with GNN
 class CLWrapper(nn.Module):
@@ -19,8 +19,8 @@ class CLWrapper(nn.Module):
         self.gnn = gnn
         self.projection_head = projector
 
-    def forward(self, *inputs):
-        gnn_output = self.gnn(*inputs)
+    def forward(self, inputs):
+        gnn_output = self.gnn(inputs)
         if self.projection_head is not None:
             return self.projection_head(gnn_output)
         return gnn_output
@@ -40,7 +40,7 @@ class GNNFeatureExtractor(nn.Module):
         self.pooling_layer = pooling_strategies[pooling_strategy]
 
     # forward pass
-    def forward(self, x, edge_index, batch):
+    def forward(self, sample):
         pass
 
 
@@ -48,11 +48,13 @@ class GCNFeatureExtractor(GNNFeatureExtractor):
     def __init__(self, in_channels, out_channels, pooling_strategy='global_avg'):
         super(GCNFeatureExtractor, self).__init__(in_channels, out_channels, pooling_strategy)
         self.conv1 = gnn.GCNConv(in_channels, 4 * out_channels)
-        self.conv2 = gnn.GCNConv(4 * out_channels, 2 * out_channels)
-        self.conv3 = gnn.GCNConv(2 * out_channels, out_channels)
+        self.conv2 = gnn.GCNConv(4 * out_channels, 8 * out_channels)
+        self.conv3 = gnn.GCNConv(8 * out_channels, 4 * out_channels)
+        self.conv4 = gnn.GCNConv(4 * out_channels, 2 *out_channels)
+        self.conv5 = gnn.GCNConv(2 * out_channels, out_channels)
 
-
-    def forward(self, x, edge_index, batch):
+    def forward(self, sample):
+        x, edge_index, batch = sample.x, sample.edge_index, sample.batch
         if x is None:  # Check if x is None
             raise ValueError("x should not be None")
         x = self.conv1(x, edge_index)
@@ -60,5 +62,10 @@ class GCNFeatureExtractor(GNNFeatureExtractor):
         x = self.conv2(x, edge_index)
         x = torch.relu(x)
         x = self.conv3(x, edge_index)
+        x = torch.relu(x)
+        x = self.conv4(x, edge_index)
+        x = torch.relu(x)
+        x = self.conv5(x, edge_index)
+
         x = self.pooling_layer(x, batch, edge_index)
         return x
