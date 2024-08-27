@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset
 import networkx as nx
 import numpy as np
-from Data.transforms import perform_random_transform
+from .transforms import perform_random_transform
 from torch_geometric.data import Data
 
 class GraphDataset(Dataset):
