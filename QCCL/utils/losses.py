@@ -40,6 +40,10 @@ class NTXentLoss(nn.Module):
 
         loss_pos_pairs = -torch.log(torch.exp(positives / self.temperature) / 
                                     (torch.exp(positives / self.temperature) + torch.sum(torch.exp(negatives / self.temperature), dim=1).view(2*N, -1)))
-        
+        if print_flag: 
+            print('losses:', loss_pos_pairs)
+            print('temp:', self.temperature)
+            print('N:', N)
+
         return torch.mean(loss_pos_pairs), positives, negatives
     
