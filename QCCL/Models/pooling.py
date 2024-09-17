@@ -24,7 +24,7 @@ def extract_last_nodes(x, batch, row, col):
     # Both conditions can be combined into a single condition: in_degree == out_degree+1
     last_nodes_mask = (in_degree == out_degree+1) | (out_degree == 0) 
     x_last = x[last_nodes_mask]
-    batch_last = batch[last_nodes_mask]
+    batch_last = batch[last_nodes_mask] if batch is not None else None
     return x_last, batch_last
 
 
