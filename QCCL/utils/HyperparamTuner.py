@@ -2,7 +2,6 @@ import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, TensorDataset, random_split
 from QCCL.Models import BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR, GCNFeatureExtractor
 import copy
 from QCCL.Data import GraphDataset, load_graphs
@@ -73,7 +72,8 @@ class HyperparamTuner:
         composite_circuits = X[-composite_transforms_size:]  # Last n circuits (composite transformations)
         single_transform_circuits = X[:-composite_transforms_size]  # Remaining circuits (single transformations)
 
-        composite_circuits = np.random.permutation(composite_circuits)
+        shuffling_mask = np.random.permutation(len(composite_circuits))
+        composite_circuits = composite_circuits[shuffling_mask]
 
         val_data = composite_circuits[:val_size]
         remaining_composite = composite_circuits[min(val_size, composite_transforms_size):]
