@@ -3,12 +3,11 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset, random_split
-from Models import BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR, GCNFeatureExtractor
+from QCCL.Models import BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR, GCNFeatureExtractor
 import copy
-from Data import GraphDataset
+from QCCL.Data import GraphDataset, load_graphs
 import numpy as np
-from utils import NTXentLoss, train, train_byol
-from Data import load_graphs
+from QCCL.utils import NTXentLoss, train, train_byol
 
 losses = {
     'cl': NTXentLoss(),
