@@ -4,6 +4,7 @@ from torch_geometric.loader import DataLoader
 import numpy as np
 from tqdm import tqdm
 from .losses import NTXentLoss
+from torch.nn import MSELoss    
 
 def validate(model, val_loader, loss_fun, device='cuda'):
     model.eval()
@@ -106,8 +107,8 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
                 prev_ema = history['ema_val_loss'][-1] if history['ema_val_loss'] else val_loss
                 ema_val_loss = ema_alpha * val_loss + (1.0 - ema_alpha) * prev_ema
                 history['ema_val_loss'].append(ema_val_loss)
-                
-        return val_loss
+        
+        return
 
     if verbose:
         for epoch in range(epochs):
@@ -115,7 +116,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
                 total_train_loss = train_step()
                 pbar.update(1)
 
-            val_loss = update_history()
+            update_history()
 
             print(f"\t - loss: {total_train_loss:.4f} - grad_norm_l2: {history['grad_norm_l2'][-1]:.4f}", end="")
             if val_dataset is not None:
@@ -145,7 +146,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
                 total_train_loss = train_step()
                 pbar.update(1)
                 pbar.set_postfix({'loss': f"{total_train_loss:.4f}"})
-                val_loss = update_history()
+                update_history()
 
                 if val_dataset is not None:
                     if ema_loss:
@@ -180,3 +181,152 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
         model.load_state_dict(best_model_state)
 
     return history
+
+
+def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=1e-3, tau=0.5, device='cuda', 
+          ema_alpha=1.0, patience=None, restore_best=False, verbose=True):
+    
+    online_model = model.online_model
+    target_model = model.target_model
+
+    ema_loss = False if ema_alpha == 1.0 else True
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    optimizer = Adam(online_model.parameters(), lr=lr)
+    squared_error_loss = MSELoss(reduction='sum') 
+
+    history = {
+        'train_loss': [], 
+        'val_loss': [] if val_dataset is not None else None
+    }
+    if ema_loss:
+        history['ema_val_loss'] = []
+
+    if val_dataset:
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+
+    # Initialize variables for early stopping
+    if patience is None:
+        patience = epochs
+    else:
+        restore_best = True
+    best_val_loss = np.inf
+    patience_counter = 0  
+    best_model_state = None  
+    
+    def train_step():
+        # for each epoch
+        online_model.train()
+        target_model.eval()
+        total_loss = 0
+        
+        for graph1, graph2 in train_loader: # for each batch
+            graph1, graph2 = graph1.to(device), graph2.to(device)
+
+            optimizer.zero_grad()
+
+            z1 = online_model(graph1)
+            with torch.no_grad():
+                z2 = target_model(graph2) # target model won't be updated through backprop
+
+            # compute loss
+            loss = squared_error_loss(z1, z2)
+            loss.backward()
+
+            update_target(online_model, target_model, model.target_decay_rate)
+
+            optimizer.step()
+
+            total_loss += loss.item()
+
+        return total_loss
+    
+    def validate_step():
+        return validate(model, val_loader, squared_error_loss, device)
+    
+    def update_history():
+        history['train_loss'].append(total_train_loss)
+        if val_dataset is not None:
+            val_loss = validate_step()
+            history['val_loss'].append(val_loss)
+
+            if ema_loss:
+                prev_ema = history['ema_val_loss'][-1] if history['ema_val_loss'] else val_loss
+                ema_val_loss = ema_alpha * val_loss + (1.0 - ema_alpha) * prev_ema
+                history['ema_val_loss'].append(ema_val_loss)
+        
+        return
+    
+    if verbose:
+        for epoch in range(epochs):
+            with tqdm(total=len(train_loader), desc=f"Epoch {epoch+1}/{epochs}", unit='batch', disable=not verbose) as pbar:
+                total_train_loss = train_step()
+                pbar.update(1)
+
+            update_history()
+
+            print(f"\t - loss: {total_train_loss:.4f} - grad_norm_l2: {history['grad_norm_l2'][-1]:.4f}", end="")
+            if val_dataset is not None:
+                print(f" - val_loss: {history['val_loss'][-1]:.4f}", end="")
+
+                curr_ema_val_loss = history['ema_val_loss'][-1] if ema_loss else history['val_loss'][-1]
+                # check for validation loss improvement
+                if curr_ema_val_loss < best_val_loss:
+                    best_val_loss = curr_ema_val_loss
+                    patience_counter = 0  # reset patience
+                    best_model_state = model.state_dict() 
+                else:
+                    patience_counter += 1
+
+                # early stopping
+                if patience_counter >= patience:
+                    print("Early stopping due to no improvement in validation loss. Epochs run: ", epoch+1)
+                    break
+
+    else:
+        with tqdm(total=epochs, desc="Training", unit='epoch', disable=verbose) as pbar:
+            for epoch in range(epochs):
+                total_train_loss = train_step()
+                pbar.update(1)
+                pbar.set_postfix({'loss': f"{total_train_loss:.4f}"})
+                update_history()
+
+                if val_dataset is not None:
+                    if ema_loss:
+                        pbar.set_postfix({
+                            'loss': f"{total_train_loss:.4f}",
+                            'val_loss': f"{history['val_loss'][-1]:.4f}",
+                            'ema_val_loss': f"{history['ema_val_loss'][-1]:.4f}"
+                        })
+                    else:
+                        pbar.set_postfix({
+                            'loss': f"{total_train_loss:.4f}",
+                            'val_loss': f"{history['val_loss'][-1]:.4f}"
+                        })
+
+                    curr_ema_val_loss = history['ema_val_loss'][-1] if ema_loss else history['val_loss'][-1]
+                    # check for validation loss improvement
+                    if curr_ema_val_loss < best_val_loss:
+                        best_val_loss = curr_ema_val_loss
+                        patience_counter = 0
+                        best_model_state = model.state_dict() 
+                    else:
+                        patience_counter += 1
+
+                    # early stopping
+                    if patience_counter >= patience:
+                        print("Early stopping due to no improvement in validation loss. Epochs run: ", epoch+1)
+                        break
+    
+    # restore the best model parameters after training
+    if best_model_state is not None and restore_best:
+        print(f"Restoring model to the state with the best validation loss.")
+        model.load_state_dict(best_model_state)
+
+    return history
+    
+
+
+def update_target(online_model, target_model, tau):
+    for online_params, target_params in zip(online_model.parameters(), target_model.parameters()):
+        target_params.data = tau * target_params.data + (1.0 - tau) * online_params.data
+    return
