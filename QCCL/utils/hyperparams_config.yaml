@@ -1,0 +1,32 @@
+learning_rate:
+  range: [1e-5, 1e-1]
+  tune: true
+  type: loguniform
+  default: 1e-3
+n_layers:
+  range: [1, 12]
+  tune: true
+  type: int
+  default: 5
+batch_size:
+  choices: [4, 8, 12]
+  tune: true
+  type: categorical
+  default: 11
+patience:
+  range: [0, 1000]
+  tune: true
+  type: int
+  default: 500
+projection_size:
+  range: [4, 16]
+  tune: true
+  type: int
+  default: 12
+temperature:
+  range: [0.01, 1.0]
+  tune: true
+  type: loguniform
+  default: 0.1
+  
+
