@@ -9,30 +9,16 @@ pooling_strategies = {
             'global_max': global_max_pool,
             'last_avg': last_nodes_mean_pool,
             'last_max': last_nodes_max_pool
-        }
-    
-
-# wrapper class for CL model (nn.Sequential) is not compatible with GNN
-class CLWrapper(nn.Module):
-    def __init__(self, gnn, projector=None):
-        super(CLWrapper, self).__init__()
-        self.gnn = gnn
-        self.projection_head = projector
-
-    def forward(self, inputs):
-        gnn_output = self.gnn(inputs)
-        if self.projection_head is not None:
-            return self.projection_head(gnn_output)
-        return gnn_output
-    
+        }  
 
 
 class GNNFeatureExtractor(nn.Module):
-    def __init__(self, in_channels, out_channels, pooling_strategy='global_avg'):
+    def __init__(self, in_channels, out_channels, pooling_strategy='global_avg', num_layers=5):
         super(GNNFeatureExtractor, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.pooling_strategy = pooling_strategy
+        self.num_layers = num_layers
 
         if pooling_strategy not in pooling_strategies.keys():
             raise ValueError(f"Invalid pooling strategy: {pooling_strategy}")
@@ -45,27 +31,27 @@ class GNNFeatureExtractor(nn.Module):
 
 
 class GCNFeatureExtractor(GNNFeatureExtractor):
-    def __init__(self, in_channels, out_channels, pooling_strategy='global_avg'):
-        super(GCNFeatureExtractor, self).__init__(in_channels, out_channels, pooling_strategy)
-        self.conv1 = gnn.GCNConv(in_channels, 4 * out_channels)
-        self.conv2 = gnn.GCNConv(4 * out_channels, 8 * out_channels)
-        self.conv3 = gnn.GCNConv(8 * out_channels, 4 * out_channels)
-        self.conv4 = gnn.GCNConv(4 * out_channels, 2 *out_channels)
-        self.conv5 = gnn.GCNConv(2 * out_channels, out_channels)
+    # N.B. GCN has issues with single-node-graphs
+    def __init__(self, in_channels, out_channels, pooling_strategy='global_avg', num_layers=5):
+        super(GCNFeatureExtractor, self).__init__(in_channels, out_channels, pooling_strategy, num_layers)
+        # create layers based on the number of layers
+        self.conv_layers = nn.ModuleList()
+        for i in range(num_layers-1):
+            max_exp = 10
+            if i == 0:
+                self.conv_layers.append(gnn.GCNConv(in_channels, 2**max_exp))
+            else:
+                self.conv_layers.append(gnn.GCNConv(2**(max_exp-i), 2**(max_exp-i-1)))
+        self.conv_layers.append(gnn.GCNConv(2**(max_exp-num_layers), out_channels))       
+
 
     def forward(self, sample):
         x, edge_index, batch = sample.x, sample.edge_index, sample.batch
         if x is None:  # Check if x is None
             raise ValueError("x should not be None")
-        x = self.conv1(x, edge_index)
-        x = torch.relu(x)
-        x = self.conv2(x, edge_index)
-        x = torch.relu(x)
-        x = self.conv3(x, edge_index)
-        x = torch.relu(x)
-        x = self.conv4(x, edge_index)
-        x = torch.relu(x)
-        x = self.conv5(x, edge_index)
+        for conv in self.conv_layers:
+            x = conv(x, edge_index)
+            x = torch.relu(x)
 
         x = self.pooling_layer(x, batch, edge_index)
         return x
