@@ -2,12 +2,12 @@ import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from Models import BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR, GCNFeatureExtractor
-import copy
-from Data import GraphDataset, load_graphs
 import numpy as np
-from utils import NTXentLoss, train, train_byol
+import copy
 import yaml
+from ..Models import BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR, GCNFeatureExtractor
+from ..Data import GraphDataset, load_graphs
+from ..utils import NTXentLoss, train, train_byol
 
 losses = {
     'cl': NTXentLoss(),
