@@ -128,7 +128,7 @@ class HyperparamTuner:
         model, model_type = self.build_model(num_layers=n_layers, proj_output_size=projection_size)        
 
         model_name = "SimCLR" if model_type == 'cl' else "BYOL"
-        print(f"\nTraining {model_type} model on {self.device}...")
+        print(f"\nTraining {model_name} model on {self.device}...")
         history = train_fn[model_type](
             model, 
             X_train, X_val, 
