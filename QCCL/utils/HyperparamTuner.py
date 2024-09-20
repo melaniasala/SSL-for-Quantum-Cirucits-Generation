@@ -7,6 +7,7 @@ import copy
 from Data import GraphDataset, load_graphs
 import numpy as np
 from utils import NTXentLoss, train, train_byol
+import yaml
 
 losses = {
     'cl': NTXentLoss(),
@@ -25,53 +26,57 @@ class HyperparamTuner:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     def build_model(self, num_layers, proj_output_size):
+        print(f"\nBuilding model with {num_layers} GCNConv layers and projection size {proj_output_size}...")
+
         if self.experiment_configs['model_type'] == 'byol':
+            print("Selected model type: BYOL")
             gnn = GCNFeatureExtractor(**self.experiment_configs['gnn'], num_layers=num_layers)
             projector = nn.Sequential(nn.Linear(self.experiment_configs['embedding_size'], self.experiment_configs['hidden_size']), 
-                                    nn.ReLU(), 
-                                    nn.Linear(self.experiment_configs['hidden_size'], proj_output_size))
+                                      nn.ReLU(), 
+                                      nn.Linear(self.experiment_configs['hidden_size'], proj_output_size))
             predictor = nn.Sequential(nn.Linear(proj_output_size, self.experiment_configs['hidden_size']),
-                                    nn.ReLU(),
-                                    nn.Linear(self.experiment_configs['hidden_size'], proj_output_size))
+                                      nn.ReLU(),
+                                      nn.Linear(self.experiment_configs['hidden_size'], proj_output_size))
             online_model = BYOLOnlineNet(gnn, projector, predictor)
 
-            target_gnn = copy.deepcopy(gnn)  # Deep copy to ensure independent weights
-            target_projector = copy.deepcopy(projector)  # Deep copy to ensure independent weights
+            target_gnn = copy.deepcopy(gnn)
+            target_projector = copy.deepcopy(projector)
             target_model = BYOLTargetNet(target_gnn, target_projector)
 
             model = BYOL(online_model, target_model)
+            print("BYOL model built successfully.")
 
         elif self.experiment_configs['model_type'] == 'cl':
-            print('Building SimCLR model...')
+            print("Selected model type: SimCLR")
             gnn = GCNFeatureExtractor(**self.experiment_configs['gnn'], num_layers=num_layers)
             projector = nn.Sequential(nn.Linear(self.experiment_configs['embedding_size'], self.experiment_configs['hidden_size']), 
-                                    nn.ReLU(), 
-                                    nn.Linear(self.experiment_configs['hidden_size'], proj_output_size))
+                                      nn.ReLU(), 
+                                      nn.Linear(self.experiment_configs['hidden_size'], proj_output_size))
             model = SimCLR(gnn, projector)
+            print("SimCLR model built successfully.")
 
         else:
             raise ValueError(f"Invalid model type: {self.experiment_configs['model_type']}")
 
         return model, self.experiment_configs['model_type']
 
-    # Dataset splitting function
     def split_dataset(self, X):
-        print('\nSplitting dataset...')
-        # get from configs
+        print('\nStarting dataset split...')
         train_size = self.experiment_configs['train_size']
         val_size = self.experiment_configs['val_size']
         use_pre_paired = self.experiment_configs['use_pre_paired_dataset']
         composite_transforms_size = self.experiment_configs['composite_transforms_size']
         
         total_size = len(X)
-        print('Total number of circuits:', total_size)
-        
-        print('Number of circuits under composite transformations:', composite_transforms_size)
+        print(f"Total dataset size: {total_size}")
+        print(f"Composite transformations size: {composite_transforms_size}")
         
         test_size = 1.0 - train_size - val_size
         test_size = int(test_size * total_size)
         val_size = int(val_size * total_size)
         train_size = total_size - val_size - test_size
+
+        print(f"Splitting into {train_size} training, {val_size} validation, and {test_size} test circuits...")
 
         composite_circuits = X[-composite_transforms_size:]  # Last n circuits (composite transformations)
         single_transform_circuits = X[:-composite_transforms_size]  # Remaining circuits (single transformations)
@@ -84,6 +89,7 @@ class HyperparamTuner:
 
         test_data = remaining_composite[:min(test_size, len(remaining_composite))]
         if len(test_data) < test_size:  # If not enough composite circuits, take from single transformation circuits
+            print("Not enough composite circuits for test set, adding single transformation circuits...")
             additional_test_data = single_transform_circuits[:(test_size - len(test_data))]
             test_data = test_data + additional_test_data
 
@@ -93,10 +99,10 @@ class HyperparamTuner:
         shuffling_mask = np.random.permutation(len(train_data))
         train_data = [train_data[i] for i in shuffling_mask]
 
-        print('Data split:')
-        print('train:', len(train_data), '(', round((len(train_data) / total_size) * 100, 1), '%)')
-        print('val:', len(val_data), '(', round((len(val_data) / total_size) * 100, 1), '%)')
-        print('test:', len(test_data), '(', round((len(test_data) / total_size) * 100, 1), '%)')
+        print('Data split completed:')
+        print(f'Training set: {len(train_data)} samples')
+        print(f'Validation set: {len(val_data)} samples')
+        print(f'Test set: {len(test_data)} samples')
 
         train_dataset = GraphDataset(train_data, pre_paired=use_pre_paired)
         val_dataset = GraphDataset(val_data, pre_paired=use_pre_paired)
@@ -104,9 +110,9 @@ class HyperparamTuner:
         
         return train_dataset, val_dataset, test_dataset
 
-    # Optuna objective function
     def objective(self, trial):
-        # Hyperparameters to tune
+        print("\n" + "="*50)
+        print(f"Starting Optuna trial {trial.number}...")
         n_layers = get_hyperparameter_value(trial, 'n_layers', self.tuning_configs['n_layers'])
         patience = get_hyperparameter_value(trial, 'patience', self.tuning_configs['patience'])
         projection_size = get_hyperparameter_value(trial, 'projection_size', self.tuning_configs['projection_size'])
@@ -114,9 +120,13 @@ class HyperparamTuner:
         batch_size = get_hyperparameter_value(trial, 'batch_size', self.tuning_configs['batch_size'])
         learning_rate = get_hyperparameter_value(trial, 'learning_rate', self.tuning_configs['learning_rate'])
 
-        # Model, loss function, and optimizer
+        print(f"Trial hyperparameters: n_layers={n_layers}, patience={patience}, projection_size={projection_size}, "
+              f"temperature={temperature}, batch_size={batch_size}, learning_rate={learning_rate}")
+
         model, model_type = self.build_model(num_layers=n_layers, proj_output_size=projection_size)
 
+        model_name = "SimCLR" if model_type == 'cl' else "BYOL"
+        print(f"\nTraining {model_name} model...")
         history = train_fn[model_type](
             model, 
             X_train, X_val, 
@@ -126,37 +136,52 @@ class HyperparamTuner:
             patience=patience,
             device=self.device,
             **self.experiment_configs['train']
-            )
+        )
         
-        return min(history['ema_val_loss'])
+        min_val_loss = min(history['ema_val_loss'])
+        print(f"Trial {trial.number} completed with minimum validation loss: {min_val_loss}")
 
-    # Main experiment function
+        return min_val_loss
+
     def run_experiment(self, n_trials=100):
         global X_train, X_val, X_test, input_dim
 
-        # Load the dataset
+        optuna.logging.set_verbosity(optuna.logging.WARNING)
+
         print('\nLoading dataset...')
         X, _ = load_graphs()
+        print('Dataset loaded successfully. Proceeding to split...')
         X_train, X_val, X_test = self.split_dataset(X)
 
+        print(f"\nStarting Optuna study with {n_trials} trials...")
         study = optuna.create_study(direction='minimize')  # Minimize validation loss
         study.optimize(self.objective, n_trials=n_trials)
-        
+
         # Get the best hyperparameters
         best_params = study.best_params
-        print(f"Best Hyperparameters: {best_params}")
+        print(f"\nHyperparameter tuning complete. Best parameters: {best_params}")
         
-        # Save table with hyperparameters and results
-        df = study.trials_dataframe()
-        df.to_csv('hyperparam_tuning_results.csv', index=False)
+        trials_df = study.trials_dataframe().drop(columns=['datetime_start', 'datetime_complete', 'duration']).to_dict(orient='records')
+        study_results = {
+            "best_params": best_params,
+            "experiment_configs": self.experiment_configs,
+            "trials_dataframe": trials_df
+        }
+
+        # Save the results to a YAML file
+        with open('hyperparam_tuning_results_with_configs.yaml', 'w') as f:
+            yaml.dump(study_results, f, default_flow_style=False)
+
+        print("Results saved to hyperparam_tuning_results_with_configs.yaml")
 
         return best_params
+
 
 
 def get_hyperparameter_value(trial, param_name, param_config):
     if param_config['tune']:
         if param_config['type'] == 'loguniform':
-            return trial.suggest_loguniform(param_name, *param_config['range'])
+            return trial.suggest_float(param_name, *param_config['range'], log=True)
         elif param_config['type'] == 'int':
             return trial.suggest_int(param_name, *param_config['range'])
         elif param_config['type'] == 'categorical':
