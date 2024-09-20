@@ -5,6 +5,7 @@ embedding_size: 16
 hidden_size: 512
 composite_transforms_size: 7
 use_pre_paired_dataset: true
+n_splits: 4 # number of splits for K-fold cross-validation
 
 gnn:
   in_channels: 6 # number of node features for gnn input
