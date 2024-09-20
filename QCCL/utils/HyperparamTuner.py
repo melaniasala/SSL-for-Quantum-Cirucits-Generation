@@ -24,6 +24,7 @@ class HyperparamTuner:
         self.experiment_configs = experiment_configs
         self.tuning_configs = tuning_configs
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.n_splits = experiment_configs['n_splits']
 
     def build_model(self, num_layers, proj_output_size):
         print(f"Building model with {num_layers} GCNConv layers and projection size {proj_output_size}...")
@@ -66,7 +67,7 @@ class HyperparamTuner:
         print('\nStarting dataset split...')
         use_pre_paired = self.experiment_configs['use_pre_paired_dataset']
 
-        if self.experiment_configs['n_splits'] is None:
+        if self.n_splits is None:
             # Standard train/val/test split
             train_size = self.experiment_configs['train_size']
             val_size = self.experiment_configs['val_size']
@@ -118,13 +119,13 @@ class HyperparamTuner:
         
         else:
             # K-Fold cross-validation split
-            print(f"Using {self.experiment_configs['n_splits']}-fold cross-validation...")
-            folds = kfold(X, self.experiment_configs['n_splits'])
+            print(f"Using {self.n_splits}-fold cross-validation...")
+            folds = kfold(X, self.n_splits)
 
             # convert to GraphDataset objects
             folds = [(GraphDataset(train_data, pre_paired=use_pre_paired), GraphDataset(val_data, pre_paired=use_pre_paired)) for train_data, val_data in folds]
 
-            print(f'Generated {self.experiment_configs['n_splits']} folds for cross-validation.')
+            print(f'Generated {self.n_splits} folds for cross-validation.')
             return folds
         
 
@@ -141,7 +142,7 @@ class HyperparamTuner:
         print(f"Trial hyperparameters: n_layers={n_layers}, patience={patience}, projection_size={projection_size}, "
               f"temperature={temperature}, batch_size={batch_size}, learning_rate={learning_rate}\n")   
 
-        if self.experiment_configs['n_splits'] is None:
+        if self.n_splits is None:
             model, model_type = self.build_model(num_layers=n_layers, proj_output_size=projection_size)     
             # Standard train/val split
             print("Training with standard train/val split...")
@@ -164,10 +165,10 @@ class HyperparamTuner:
 
         else:
             # K-Fold cross-validation
-            print(f"Training with {self.experiment_configs['n_splits']}-fold cross-validation...")
+            print(f"Training with {self.n_splits}-fold cross-validation...")
             fold_losses = []
             for fold_num, (train_folds, val_fold) in enumerate(folds):
-                print(f"\nTraining on fold {fold_num + 1}/{self.experiment_configs['n_splits']}...")
+                print(f"\nTraining on fold {fold_num + 1}/{self.n_splits}...")
                 model, model_type = self.build_model(num_layers=n_layers, proj_output_size=projection_size)
                 
                 history = train_fn[model_type](
@@ -198,7 +199,7 @@ class HyperparamTuner:
         print('\nLoading dataset...')
         X, _ = load_graphs()
         print('Dataset loaded successfully.')
-        if self.experiment_configs['n_splits'] is None:
+        if self.n_splits is None:
             X_train, X_val, _ = self.split_dataset(X)
         else:
             folds = self.split_dataset(X)
