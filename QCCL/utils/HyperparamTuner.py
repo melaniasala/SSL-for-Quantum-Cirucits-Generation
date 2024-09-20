@@ -58,6 +58,8 @@ class HyperparamTuner:
         else:
             raise ValueError(f"Invalid model type: {self.experiment_configs['model_type']}")
 
+        model.to(self.device)
+        print("Model moved to device:", self.device)
         return model, self.experiment_configs['model_type']
 
     def split_dataset(self, X):
@@ -123,10 +125,10 @@ class HyperparamTuner:
         print(f"Trial hyperparameters: n_layers={n_layers}, patience={patience}, projection_size={projection_size}, "
               f"temperature={temperature}, batch_size={batch_size}, learning_rate={learning_rate}")
 
-        model, model_type = self.build_model(num_layers=n_layers, proj_output_size=projection_size)
+        model, model_type = self.build_model(num_layers=n_layers, proj_output_size=projection_size)        
 
         model_name = "SimCLR" if model_type == 'cl' else "BYOL"
-        print(f"\nTraining {model_name} model...")
+        print(f"\nTraining {model_type} model on {self.device}...")
         history = train_fn[model_type](
             model, 
             X_train, X_val, 
