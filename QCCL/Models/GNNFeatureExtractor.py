@@ -36,6 +36,8 @@ class GCNFeatureExtractor(GNNFeatureExtractor):
         super(GCNFeatureExtractor, self).__init__(in_channels, out_channels, pooling_strategy, num_layers)
         self.conv_layers = nn.ModuleList()
         max_exp = 10
+        if num_layers < 2:
+            raise ValueError("Number of layers should be at least 2 (1 hidden layer)")
         for i in range(num_layers-1):
             if i == 0:
                 self.conv_layers.append(gnn.GCNConv(in_channels, 2**max_exp))
