@@ -32,18 +32,16 @@ class GNNFeatureExtractor(nn.Module):
 
 class GCNFeatureExtractor(GNNFeatureExtractor):
     # N.B. GCN has issues with single-node-graphs
-    def __init__(self, in_channels, out_channels, pooling_strategy='global_avg', num_layers=5):
+    def __init__(self, in_channels, out_channels, pooling_strategy='global_avg', num_layers=5): 
         super(GCNFeatureExtractor, self).__init__(in_channels, out_channels, pooling_strategy, num_layers)
-        # create layers based on the number of layers
         self.conv_layers = nn.ModuleList()
+        max_exp = 10
         for i in range(num_layers-1):
-            max_exp = 10
             if i == 0:
                 self.conv_layers.append(gnn.GCNConv(in_channels, 2**max_exp))
             else:
-                self.conv_layers.append(gnn.GCNConv(2**(max_exp-i), 2**(max_exp-i-1)))
-        self.conv_layers.append(gnn.GCNConv(2**(max_exp-num_layers), out_channels))       
-
+                self.conv_layers.append(gnn.GCNConv(2**(max_exp-i+1), 2**(max_exp-i)))
+        self.conv_layers.append(gnn.GCNConv(2**(max_exp-num_layers+2), out_channels))
 
     def forward(self, sample):
         x, edge_index, batch = sample.x, sample.edge_index, sample.batch
