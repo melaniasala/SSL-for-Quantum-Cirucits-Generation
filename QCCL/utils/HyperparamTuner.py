@@ -5,8 +5,8 @@ import torch.optim as optim
 import numpy as np
 import copy
 import yaml
-from Models import BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR, GCNFeatureExtractor
-from Data import GraphDataset, load_graphs
+from ..Models import BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR, GCNFeatureExtractor
+from ..Data import GraphDataset, load_graphs
 from utils import NTXentLoss, train, train_byol
 
 losses = {
