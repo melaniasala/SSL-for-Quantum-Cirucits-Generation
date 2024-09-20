@@ -1,4 +1,4 @@
-from Models import GCNFeatureExtractor, BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR
+from ..Models import GCNFeatureExtractor, BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR
 import torch.nn as nn
 import copy
 
