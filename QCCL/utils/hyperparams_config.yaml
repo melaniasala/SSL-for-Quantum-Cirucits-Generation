@@ -1,10 +1,10 @@
 learning_rate:
-  range: [1e-5, 1e-1]
+  range: [0.00001, 0.1]
   tune: true
   type: loguniform
   default: 1e-3
 n_layers:
-  range: [1, 12]
+  range: [1, 10]
   tune: true
   type: int
   default: 5
@@ -28,5 +28,5 @@ temperature:
   tune: true
   type: loguniform
   default: 0.1
-  
+
 

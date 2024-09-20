@@ -2,11 +2,11 @@ import optuna
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from QCCL.Models import BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR, GCNFeatureExtractor
+from Models import BYOLOnlineNet, BYOLTargetNet, BYOL, SimCLR, GCNFeatureExtractor
 import copy
-from QCCL.Data import GraphDataset, load_graphs
+from Data import GraphDataset, load_graphs
 import numpy as np
-from QCCL.utils import NTXentLoss, train, train_byol
+from utils import NTXentLoss, train, train_byol
 
 losses = {
     'cl': NTXentLoss(),
@@ -26,7 +26,7 @@ class HyperparamTuner:
 
     def build_model(self, num_layers, proj_output_size):
         if self.experiment_configs['model_type'] == 'byol':
-            gnn = GCNFeatureExtractor(num_layers=num_layers, **self.experiment_configs)
+            gnn = GCNFeatureExtractor(**self.experiment_configs['gnn'], num_layers=num_layers)
             projector = nn.Sequential(nn.Linear(self.experiment_configs['embedding_size'], self.experiment_configs['hidden_size']), 
                                     nn.ReLU(), 
                                     nn.Linear(self.experiment_configs['hidden_size'], proj_output_size))
@@ -42,7 +42,8 @@ class HyperparamTuner:
             model = BYOL(online_model, target_model)
 
         elif self.experiment_configs['model_type'] == 'cl':
-            gnn = GCNFeatureExtractor(num_layers=num_layers, **self.experiment_configs)
+            print('Building SimCLR model...')
+            gnn = GCNFeatureExtractor(**self.experiment_configs['gnn'], num_layers=num_layers)
             projector = nn.Sequential(nn.Linear(self.experiment_configs['embedding_size'], self.experiment_configs['hidden_size']), 
                                     nn.ReLU(), 
                                     nn.Linear(self.experiment_configs['hidden_size'], proj_output_size))
@@ -55,6 +56,7 @@ class HyperparamTuner:
 
     # Dataset splitting function
     def split_dataset(self, X):
+        print('\nSplitting dataset...')
         # get from configs
         train_size = self.experiment_configs['train_size']
         val_size = self.experiment_configs['val_size']
@@ -62,18 +64,20 @@ class HyperparamTuner:
         composite_transforms_size = self.experiment_configs['composite_transforms_size']
         
         total_size = len(X)
+        print('Total number of circuits:', total_size)
         
         print('Number of circuits under composite transformations:', composite_transforms_size)
         
-        train_size = int(train_size * total_size)
+        test_size = 1.0 - train_size - val_size
+        test_size = int(test_size * total_size)
         val_size = int(val_size * total_size)
-        test_size = total_size - train_size - val_size
+        train_size = total_size - val_size - test_size
 
         composite_circuits = X[-composite_transforms_size:]  # Last n circuits (composite transformations)
         single_transform_circuits = X[:-composite_transforms_size]  # Remaining circuits (single transformations)
 
         shuffling_mask = np.random.permutation(len(composite_circuits))
-        composite_circuits = composite_circuits[shuffling_mask]
+        composite_circuits = [composite_circuits[i] for i in shuffling_mask]
 
         val_data = composite_circuits[:val_size]
         remaining_composite = composite_circuits[min(val_size, composite_transforms_size):]
@@ -81,11 +85,13 @@ class HyperparamTuner:
         test_data = remaining_composite[:min(test_size, len(remaining_composite))]
         if len(test_data) < test_size:  # If not enough composite circuits, take from single transformation circuits
             additional_test_data = single_transform_circuits[:(test_size - len(test_data))]
-            test_data = np.concatenate([test_data, additional_test_data], axis=0)
+            test_data = test_data + additional_test_data
 
+        remaining_composite = remaining_composite[min(test_size, len(remaining_composite)):]
         remaining_single = single_transform_circuits[(test_size - len(test_data)):]
-        train_data = np.concatenate([remaining_single, remaining_composite], axis=0)
-        train_data = np.random.permutation(train_data)
+        train_data = remaining_single + remaining_composite
+        shuffling_mask = np.random.permutation(len(train_data))
+        train_data = [train_data[i] for i in shuffling_mask]
 
         print('Data split:')
         print('train:', len(train_data), '(', round((len(train_data) / total_size) * 100, 1), '%)')
@@ -101,15 +107,15 @@ class HyperparamTuner:
     # Optuna objective function
     def objective(self, trial):
         # Hyperparameters to tune
-        learning_rate = get_hyperparameter_value(trial, 'learning_rate', self.tuning_configs['learning_rate'])
         n_layers = get_hyperparameter_value(trial, 'n_layers', self.tuning_configs['n_layers'])
         patience = get_hyperparameter_value(trial, 'patience', self.tuning_configs['patience'])
         projection_size = get_hyperparameter_value(trial, 'projection_size', self.tuning_configs['projection_size'])
         temperature = get_hyperparameter_value(trial, 'temperature', self.tuning_configs['temperature'])
         batch_size = get_hyperparameter_value(trial, 'batch_size', self.tuning_configs['batch_size'])
+        learning_rate = get_hyperparameter_value(trial, 'learning_rate', self.tuning_configs['learning_rate'])
 
         # Model, loss function, and optimizer
-        model, model_type = self.build_model(num_layers=n_layers, proj_output_size=projection_size, **self.experiment_configs)
+        model, model_type = self.build_model(num_layers=n_layers, proj_output_size=projection_size)
 
         history = train_fn[model_type](
             model, 
@@ -119,7 +125,7 @@ class HyperparamTuner:
             tau=temperature, 
             patience=patience,
             device=self.device,
-            **self.experiment_configs
+            **self.experiment_configs['train']
             )
         
         return min(history['ema_val_loss'])
@@ -129,6 +135,7 @@ class HyperparamTuner:
         global X_train, X_val, X_test, input_dim
 
         # Load the dataset
+        print('\nLoading dataset...')
         X, _ = load_graphs()
         X_train, X_val, X_test = self.split_dataset(X)
 
