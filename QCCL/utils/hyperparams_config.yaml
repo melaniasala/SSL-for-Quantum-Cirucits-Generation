@@ -15,7 +15,7 @@ batch_size:
   default: 11
 patience:
   range: [0, 1000]
-  tune: true
+  tune: false
   type: int
   default: 500
 projection_size:
