@@ -5,11 +5,16 @@ embedding_size: 16
 hidden_size: 512
 composite_transforms_size: 7
 use_pre_paired_dataset: true
-in_channels: 6 # number of node features for gnn input
-out_channels: 16 # should be equal to embedding_size
-pooling_strategy: "global_avg"
-epochs: 2500
-ema_alpha: 0.05
-restore_best: true
-shuffle: true
+
+gnn:
+  in_channels: 6 # number of node features for gnn input
+  out_channels: 16 # should be equal to embedding_size
+  pooling_strategy: "global_avg"
+
+train:
+  epochs: 2500
+  ema_alpha: 0.05
+  restore_best: true
+  verbose: false
+
   
