@@ -1,4 +1,4 @@
-from ..Data import GraphDataset
+from . import GraphDataset
 import numpy as np
 
 def split_dataset(X, train_size= 0.8, val_size=0.1, use_pre_paired=False, composite_transforms_size=7):
