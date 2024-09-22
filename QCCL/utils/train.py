@@ -1,10 +1,27 @@
+import numpy as np
 import torch
+from torch.nn import MSELoss
 from torch.optim import Adam
 from torch_geometric.loader import DataLoader
-import numpy as np
 from tqdm import tqdm
+
 from .losses import NTXentLoss
-from torch.nn import MSELoss    
+
+
+def compute_loss(model, graph1, graph2, loss_fun, device='cuda'):
+    graph1, graph2 = graph1.to(device), graph2.to(device)
+    if hasattr(model, 'online_model'):
+        z1_online = model.online_model(graph1)
+        z2_online = model.online_model(graph2)
+        z1_target = model.target_model(graph2)
+        z2_target = model.target_model(graph1)
+        loss = loss_fun(z1_online, z2_target) + loss_fun(z2_online, z1_target)
+    else:
+        z1 = model(graph1)
+        z2 = model(graph2)
+        loss = loss_fun(z1, z2)
+    return loss
+
 
 def validate(model, val_loader, loss_fun, device='cuda'):
     model.eval()
@@ -13,13 +30,20 @@ def validate(model, val_loader, loss_fun, device='cuda'):
         for graph1, graph2 in val_loader:
             graph1, graph2 = graph1.to(device), graph2.to(device)
 
-            z1 = model(graph1)
-            z2 = model(graph2)
+            if hasattr(model, 'online_model'):
+                z1_online = model.online_model(graph1)
+                z2_online = model.online_model(graph2)
+                z1_target = model.target_model(graph2)
+                z2_target = model.target_model(graph1)
+                loss = loss_fun(z1_online, z2_target) + loss_fun(z2_online, z1_target) 
 
-            loss, _, _ = loss_fun(z1, z2)
+            else:
+                z1 = model(graph1)
+                z2 = model(graph2)
+                loss = loss_fun(z1, z2)
+
             total_loss += loss.item()
-    
-    return total_loss
+    return total_loss / len(val_loader)
 
 
 
@@ -43,7 +67,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # Initialize variables for early stopping
-    if patience is None:
+    if patience is None or patience == 'None':
         patience = epochs
     else:
         restore_best = True
@@ -70,7 +94,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
             z2 = model(graph2)
 
             # compute loss
-            loss, _, _ = nt_xent_loss(z1, z2)
+            loss = nt_xent_loss(z1, z2, return_scores=False)
             loss.backward()
 
             # compute gradient norm (L2 norm)
@@ -92,7 +116,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
         history['grad_norm_l2'].append(total_grad_norm_l2)
         history['avg_grad_norm_l1_per_param'].append(avg_grad_norm_l1_per_param)
 
-        return total_loss
+        return total_loss / len(train_loader)
     
     def validate_step():
         return validate(model, val_loader, nt_xent_loss, device)
@@ -177,7 +201,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
     
     # restore the best model parameters after training
     if best_model_state is not None and restore_best:
-        print(f"Restoring model to the state with the best validation loss.")
+        print("Restoring model to the state with the best validation loss.")
         model.load_state_dict(best_model_state)
 
     return history
@@ -190,9 +214,10 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
     target_model = model.target_model
 
     ema_loss = False if ema_alpha == 1.0 else True
+    print("EMA Loss: ", ema_loss)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     optimizer = Adam(online_model.parameters(), lr=lr)
-    squared_error_loss = MSELoss(reduction='sum') 
+    squared_error_loss = MSELoss() 
 
     history = {
         'train_loss': [], 
@@ -224,21 +249,24 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
 
             optimizer.zero_grad()
 
-            z1 = online_model(graph1)
+            z1_online = online_model(graph1)
+            z2_online = online_model(graph2)
+
             with torch.no_grad():
-                z2 = target_model(graph2) # target model won't be updated through backprop
+                z1_target = target_model(graph1)
+                z2_target = target_model(graph2) # target model won't be updated through backprop
 
             # compute loss
-            loss = squared_error_loss(z1, z2)
+            loss = squared_error_loss(z1_online, z2_target) + squared_error_loss(z2_online, z1_target)
+
             loss.backward()
+            optimizer.step()
 
             update_target(online_model, target_model, model.target_decay_rate)
 
-            optimizer.step()
-
             total_loss += loss.item()
 
-        return total_loss
+        return total_loss / len(train_loader)
     
     def validate_step():
         return validate(model, val_loader, squared_error_loss, device)
@@ -264,14 +292,14 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
 
             update_history()
 
-            print(f"\t - loss: {total_train_loss:.4f} - grad_norm_l2: {history['grad_norm_l2'][-1]:.4f}", end="")
+            print(f"\t - loss: {total_train_loss:.4f}", end="")
             if val_dataset is not None:
                 print(f" - val_loss: {history['val_loss'][-1]:.4f}", end="")
 
-                curr_ema_val_loss = history['ema_val_loss'][-1] if ema_loss else history['val_loss'][-1]
+                curr_val_loss = history['ema_val_loss'][-1] if ema_loss else history['val_loss'][-1]
                 # check for validation loss improvement
-                if curr_ema_val_loss < best_val_loss:
-                    best_val_loss = curr_ema_val_loss
+                if curr_val_loss < best_val_loss:
+                    best_val_loss = curr_val_loss
                     patience_counter = 0  # reset patience
                     best_model_state = model.state_dict() 
                 else:
@@ -303,10 +331,10 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
                             'val_loss': f"{history['val_loss'][-1]:.4f}"
                         })
 
-                    curr_ema_val_loss = history['ema_val_loss'][-1] if ema_loss else history['val_loss'][-1]
+                    curr_val_loss = history['ema_val_loss'][-1] if ema_loss else history['val_loss'][-1]
                     # check for validation loss improvement
-                    if curr_ema_val_loss < best_val_loss:
-                        best_val_loss = curr_ema_val_loss
+                    if curr_val_loss < best_val_loss:
+                        best_val_loss = curr_val_loss
                         patience_counter = 0
                         best_model_state = model.state_dict() 
                     else:
@@ -319,7 +347,7 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
     
     # restore the best model parameters after training
     if best_model_state is not None and restore_best:
-        print(f"Restoring model to the state with the best validation loss.")
+        print("Restoring model to the state with the best validation loss.")
         model.load_state_dict(best_model_state)
 
     return history
