@@ -17,7 +17,7 @@ patience:
   range: [0, 1000]
   tune: false
   type: int
-  default: 500
+  default: None # None means no early stopping
 projection_size:
   range: [4, 16]
   tune: true
@@ -28,5 +28,10 @@ temperature:
   tune: true
   type: loguniform
   default: 0.1
+epochs:
+  range: [100, 300]
+  tune: true
+  type: int
+  default: 2500
 
 

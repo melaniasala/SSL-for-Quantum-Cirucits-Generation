@@ -13,7 +13,6 @@ gnn:
   pooling_strategy: "global_avg"
 
 train:
-  epochs: 2500
   ema_alpha: 0.05
   restore_best: true
   verbose: false
