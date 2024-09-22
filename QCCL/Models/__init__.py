@@ -1,6 +1,18 @@
 from .GNNFeatureExtractor import GNNFeatureExtractor, GCNFeatureExtractor
-from .models import SimCLR, BYOL, BYOLOnlineNet, BYOLTargetNet
+from .wrappers import BYOLOnlineNet, BYOLTargetNet, BYOLWrapper, SimCLRWrapper
 from .utils import build_model
-#from .ProjectionHead import ProjectionHead
+from .models import BYOL, SimCLR
 
-__all__ = ['GNNFeatureExtractor', 'GCNFeatureExtractor', 'SimCLR', 'BYOL', 'BYOLOnlineNet', 'BYOLTargetNet']
+# from .ProjectionHead import ProjectionHead
+
+__all__ = [
+    "GNNFeatureExtractor",
+    "GCNFeatureExtractor",
+    "SimCLRWrapper",
+    "BYOLWrapper",
+    "BYOLOnlineNet",
+    "BYOLTargetNet",
+    "build_model",
+    "BYOL",
+    "SimCLR"
+]
