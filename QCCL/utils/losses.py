@@ -8,7 +8,7 @@ class NTXentLoss(nn.Module):
         super(NTXentLoss, self).__init__()
         self.temperature = temperature
     
-    def forward(self, z1, z2, print_flag=False):
+    def forward(self, z1, z2, print_flag=False, return_scores=False):
         z1 = F.normalize(z1, dim=1) # Shape: (N, D) where N is the batch size and D is the dimension of the embeddings
         z2 = F.normalize(z2, dim=1)
         representations = torch.cat([z1, z2], dim=0) # Shape: (2N, D)
@@ -45,5 +45,16 @@ class NTXentLoss(nn.Module):
             print('temp:', self.temperature)
             print('N:', N)
 
-        return torch.mean(loss_pos_pairs), positives, negatives
+        if return_scores:
+            return torch.mean(loss_pos_pairs), positives, negatives
+        
+        return torch.mean(loss_pos_pairs)
+    
+
+# class MSEByolLoss(nn.Module):
+#     def __init__(self):
+#         super(MSEByolLoss, self).__init__()
+    
+#     def forward(self, z1, z2):
+#         return F.mse_loss(z1, z2)
     
