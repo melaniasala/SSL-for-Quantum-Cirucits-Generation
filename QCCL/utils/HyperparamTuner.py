@@ -337,7 +337,7 @@ class HyperparamTuner:
         train, test, y_train, y_test = train_test_split(data, labels, test_size=0.4, stratify=labels)
 
         # get embeddings
-        gnn = best_model.gnn
+        gnn = best_model.gnn.to(self.device)
         train = torch.cat([gnn(d) for d in train])
         test = torch.cat([gnn(d) for d in test])
 
