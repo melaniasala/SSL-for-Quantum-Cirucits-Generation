@@ -14,7 +14,7 @@ gnn:
 
 train:
   ema_alpha: 0.05
-  restore_best: true
+  restore_best: false
   verbose: false
 
   
