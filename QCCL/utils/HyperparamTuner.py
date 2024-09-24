@@ -351,9 +351,9 @@ class HyperparamTuner:
         print(f"\tAccuracy of the classifier: {accuracy_score(y_test, y_pred)}")
 
         print("Logistic Regression (multinomial) classifier:")
-        classifier = LogisticRegression(multi_class='multinomial').fit(train.detach().numpy(), y_train)
-        y_pred = classifier.predict(test.detach().numpy())
-        y_pred_probs = classifier.predict_proba(test.detach().numpy())
+        classifier = LogisticRegression(multi_class='multinomial').fit(train.cpu().detach().numpy(), y_train)
+        y_pred = classifier.predict(test.cpu().detach().numpy())
+        y_pred_probs = classifier.predict_proba(test.cpu().detach().numpy())
         print(f"\tProbability of each class:\n\t {y_pred_probs}")
         print(f"\tAccuracy of the classifier: {accuracy_score(y_test, y_pred)}")
         
