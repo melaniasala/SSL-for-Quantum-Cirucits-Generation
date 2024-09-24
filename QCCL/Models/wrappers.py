@@ -13,6 +13,9 @@ class SimCLRWrapper(nn.Module):
             return self.projection_head(gnn_output)
         return gnn_output
     
+    def get_gnn(self):
+        return self.gnn
+    
 
 # wrapper class for BYOL model
 class BYOLOnlineNet(nn.Module):
@@ -38,11 +41,10 @@ class BYOLTargetNet(nn.Module):
         return self.projector(gnn_output)
     
 class BYOLWrapper(nn.Module):
-    def __init__(self, online_model, target_model, target_decay_rate=0.99):
+    def __init__(self, online_model, target_model):
         super(BYOLWrapper, self).__init__()
         self.online_model = online_model
         self.target_model = target_model
-        self.target_decay_rate = target_decay_rate
 
     def forward(self, inputs):
         return self.online_model(inputs), self.target_model(inputs)
