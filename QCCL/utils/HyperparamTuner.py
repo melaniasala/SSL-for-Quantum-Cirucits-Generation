@@ -344,9 +344,9 @@ class HyperparamTuner:
         # train a linear classifier (multi-class logistic regression) on top of the embeddings
         print("Training a linear classifier on top of the embeddings...")
         print("Logistic Regression (one-vs-rest) classifier:")
-        classifier = LogisticRegression().fit(train.detach().numpy(), y_train)
-        y_pred = classifier.predict(test.detach().numpy())
-        y_pred_probs = classifier.predict_proba(test.detach().numpy())
+        classifier = LogisticRegression().fit(train.cpu().detach().numpy(), y_train)
+        y_pred = classifier.predict(test.cpu().detach().numpy())
+        y_pred_probs = classifier.predict_proba(test.cpu().detach().numpy())
         print(f"\tProbability of each class:\n\t {y_pred_probs}")
         print(f"\tAccuracy of the classifier: {accuracy_score(y_test, y_pred)}")
 
