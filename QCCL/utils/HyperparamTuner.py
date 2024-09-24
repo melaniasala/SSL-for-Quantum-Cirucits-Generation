@@ -60,7 +60,7 @@ class HyperparamTuner:
             model = BYOLWrapper(online_model, target_model)
             print("BYOL model built successfully.")
 
-        elif self.experiment_configs["model_type"] == "cl":
+        elif self.experiment_configs["model_type"] == "simclr":
             print("Selected model type: SimCLR")
             gnn = GCNFeatureExtractor(
                 **self.experiment_configs["gnn"], num_layers=num_layers
