@@ -338,8 +338,8 @@ class HyperparamTuner:
 
         # get embeddings
         gnn = best_model.gnn.to(self.device)
-        train = torch.cat([gnn(d) for d in train])
-        test = torch.cat([gnn(d) for d in test])
+        train = torch.cat([gnn(d.to(self.device)) for d in train])
+        test = torch.cat([gnn(d.to(self.device)) for d in test])
 
         # train a linear classifier (multi-class logistic regression) on top of the embeddings
         print("Training a linear classifier on top of the embeddings...")
