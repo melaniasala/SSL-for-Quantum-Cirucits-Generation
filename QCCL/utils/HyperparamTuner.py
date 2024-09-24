@@ -1,5 +1,6 @@
 import copy
 
+import matplotlib.pyplot as plt
 import numpy as np
 import optuna
 import torch
@@ -8,10 +9,11 @@ import yaml
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
 
-from QCCL.Data import GraphDataset, load_graphs, from_nx_to_geometric
-from QCCL.Models import BYOLWrapper, BYOLOnlineNet, BYOLTargetNet, GCNFeatureExtractor, SimCLRWrapper
+from QCCL.Data import GraphDataset, from_nx_to_geometric, load_graphs
+from QCCL.Models import BYOLOnlineNet, BYOLTargetNet, BYOLWrapper, GCNFeatureExtractor, SimCLRWrapper
+
 from . import NTXentLoss, train, train_byol
 
 losses = {"cl": NTXentLoss(), "byol": nn.MSELoss(reduction="sum")}
@@ -341,19 +343,24 @@ class HyperparamTuner:
         train = torch.cat([gnn(d.to(self.device)) for d in train])
         test = torch.cat([gnn(d.to(self.device)) for d in test])
 
+        # scale embeddings
+        scaler = StandardScaler()
+        train = scaler.fit_transform(train.cpu().detach().numpy())
+        test = scaler.transform(test.cpu().detach().numpy())
+
         # train a linear classifier (multi-class logistic regression) on top of the embeddings
         print("Training a linear classifier on top of the embeddings...")
         print("Logistic Regression (one-vs-rest) classifier:")
-        classifier = LogisticRegression().fit(train.cpu().detach().numpy(), y_train)
-        y_pred = classifier.predict(test.cpu().detach().numpy())
-        y_pred_probs = classifier.predict_proba(test.cpu().detach().numpy())
+        classifier = LogisticRegression().fit(train, y_train)
+        y_pred = classifier.predict(test)
+        y_pred_probs = classifier.predict_proba(test)
         print(f"\tProbability of each class:\n\t {y_pred_probs}")
         print(f"\tAccuracy of the classifier: {accuracy_score(y_test, y_pred)}")
 
         print("Logistic Regression (multinomial) classifier:")
-        classifier = LogisticRegression(multi_class='multinomial').fit(train.cpu().detach().numpy(), y_train)
-        y_pred = classifier.predict(test.cpu().detach().numpy())
-        y_pred_probs = classifier.predict_proba(test.cpu().detach().numpy())
+        classifier = LogisticRegression(multi_class='multinomial').fit(train, y_train)
+        y_pred = classifier.predict(test)
+        y_pred_probs = classifier.predict_proba(test)
         print(f"\tProbability of each class:\n\t {y_pred_probs}")
         print(f"\tAccuracy of the classifier: {accuracy_score(y_test, y_pred)}")
         
