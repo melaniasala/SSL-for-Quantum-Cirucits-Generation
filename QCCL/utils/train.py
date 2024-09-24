@@ -1,26 +1,11 @@
 import numpy as np
 import torch
-from torch.nn import MSELoss
+from torch.nn import MSELoss, CosineSimilarity
 from torch.optim import Adam
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 from .losses import NTXentLoss
-
-
-def compute_loss(model, graph1, graph2, loss_fun, device='cuda'):
-    graph1, graph2 = graph1.to(device), graph2.to(device)
-    if hasattr(model, 'online_model'):
-        z1_online = model.online_model(graph1)
-        z2_online = model.online_model(graph2)
-        z1_target = model.target_model(graph2)
-        z2_target = model.target_model(graph1)
-        loss = loss_fun(z1_online, z2_target) + loss_fun(z2_online, z1_target)
-    else:
-        z1 = model(graph1)
-        z2 = model(graph2)
-        loss = loss_fun(z1, z2)
-    return loss
 
 
 def validate(model, val_loader, loss_fun, device='cuda'):
@@ -30,12 +15,13 @@ def validate(model, val_loader, loss_fun, device='cuda'):
         for graph1, graph2 in val_loader:
             graph1, graph2 = graph1.to(device), graph2.to(device)
 
-            if hasattr(model, 'online_model'):
+            # if model class is BYOLWrapper
+            if model.__class__.__name__ == 'BYOLWrapper':
                 z1_online = model.online_model(graph1)
                 z2_online = model.online_model(graph2)
-                z1_target = model.target_model(graph2)
-                z2_target = model.target_model(graph1)
-                loss = loss_fun(z1_online, z2_target) + loss_fun(z2_online, z1_target) 
+                z1_target = model.target_model(graph1)
+                z2_target = model.target_model(graph2)
+                loss = 0.5*(loss_fun(z1_online, z2_target) + loss_fun(z2_online, z1_target))
 
             else:
                 z1 = model(graph1)
@@ -208,7 +194,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
 
 
 def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=1e-3, tau=0.5, device='cuda', 
-          ema_alpha=1.0, patience=None, restore_best=False, verbose=True):
+          ema_alpha=1.0, patience=None, warmup=0, restore_best=False, verbose=True, compute_grads=False):
     
     online_model = model.online_model
     target_model = model.target_model
@@ -217,7 +203,10 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
     print("EMA Loss: ", ema_loss)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     optimizer = Adam(online_model.parameters(), lr=lr)
-    squared_error_loss = MSELoss() 
+    mse_loss = MSELoss()
+    # cosine_similarity = CosineSimilarity()
+    # mse_loss = lambda x, y: torch.mean(1 - cosine_similarity(x, y))
+    # print("Using Cosine Similarity loss for BYOL training.") 
 
     history = {
         'train_loss': [], 
@@ -225,12 +214,15 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
     }
     if ema_loss:
         history['ema_val_loss'] = []
+    if compute_grads:
+        history['grad_norm_l2'] = []
+        history['avg_grad_norm_l1_per_param'] = []
 
     if val_dataset:
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
 
     # Initialize variables for early stopping
-    if patience is None:
+    if patience is None or patience == 'None':
         patience = epochs
     else:
         restore_best = True
@@ -243,10 +235,13 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
         online_model.train()
         target_model.eval()
         total_loss = 0
+        total_grad_norm_l2 = 0
+        total_grad_norm_l1 = 0
         
         for graph1, graph2 in train_loader: # for each batch
             graph1, graph2 = graph1.to(device), graph2.to(device)
 
+            update_target(online_model, target_model, tau)
             optimizer.zero_grad()
 
             z1_online = online_model(graph1)
@@ -257,19 +252,33 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
                 z2_target = target_model(graph2) # target model won't be updated through backprop
 
             # compute loss
-            loss = squared_error_loss(z1_online, z2_target) + squared_error_loss(z2_online, z1_target)
+            loss = 0.5*(mse_loss(z1_online, z2_target) + mse_loss(z2_online, z1_target))
 
             loss.backward()
+
+            if compute_grads:
+                grad_norm_l2 = 0
+                grad_norm_l1 = 0
+                for param in online_model.parameters():
+                    if param.grad is not None:
+                        grad_norm_l2 += param.grad.norm(2).item() ** 2  
+                        grad_norm_l1 += param.grad.norm(1).item()
+                total_grad_norm_l2 += grad_norm_l2
+                total_grad_norm_l1 += grad_norm_l1
+            
             optimizer.step()
-
-            update_target(online_model, target_model, model.target_decay_rate)
-
             total_loss += loss.item()
+
+        if compute_grads:
+            total_grad_norm_l2 = np.sqrt(total_grad_norm_l2)
+            avg_grad_norm_l1_per_param = total_grad_norm_l1 / len(list(online_model.parameters()))
+            history['grad_norm_l2'].append(total_grad_norm_l2)
+            history['avg_grad_norm_l1_per_param'].append(avg_grad_norm_l1_per_param)
 
         return total_loss / len(train_loader)
     
     def validate_step():
-        return validate(model, val_loader, squared_error_loss, device)
+        return validate(model, val_loader, mse_loss, device)
     
     def update_history():
         history['train_loss'].append(total_train_loss)
@@ -298,12 +307,13 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
 
                 curr_val_loss = history['ema_val_loss'][-1] if ema_loss else history['val_loss'][-1]
                 # check for validation loss improvement
-                if curr_val_loss < best_val_loss:
-                    best_val_loss = curr_val_loss
-                    patience_counter = 0  # reset patience
-                    best_model_state = model.state_dict() 
-                else:
-                    patience_counter += 1
+                if epoch >= warmup:
+                    if curr_val_loss < best_val_loss:
+                        best_val_loss = curr_val_loss
+                        patience_counter = 0  # reset patience
+                        best_model_state = model.state_dict() 
+                    else:
+                        patience_counter += 1
 
                 # early stopping
                 if patience_counter >= patience:
@@ -333,12 +343,13 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
 
                     curr_val_loss = history['ema_val_loss'][-1] if ema_loss else history['val_loss'][-1]
                     # check for validation loss improvement
-                    if curr_val_loss < best_val_loss:
-                        best_val_loss = curr_val_loss
-                        patience_counter = 0
-                        best_model_state = model.state_dict() 
-                    else:
-                        patience_counter += 1
+                    if epoch >= warmup:
+                        if curr_val_loss < best_val_loss:
+                            best_val_loss = curr_val_loss
+                            patience_counter = 0
+                            best_model_state = model.state_dict() 
+                        else:
+                            patience_counter += 1
 
                     # early stopping
                     if patience_counter >= patience:
@@ -355,6 +366,8 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
 
 
 def update_target(online_model, target_model, tau):
-    for online_params, target_params in zip(online_model.parameters(), target_model.parameters()):
+    for online_params, target_params in zip(online_model.gnn.parameters(), target_model.gnn.parameters()):
+        target_params.data = tau * target_params.data + (1.0 - tau) * online_params.data
+    for online_params, target_params in zip(online_model.projector.parameters(), target_model.projector.parameters()):
         target_params.data = tau * target_params.data + (1.0 - tau) * online_params.data
     return
