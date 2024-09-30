@@ -23,13 +23,13 @@ projection_size:
   tune: true
   type: int
   default: 12
-temperature:
+tau: # temperature parameter for contrastive loss in SimCLR, target decay rate in BYOL
   range: [0.01, 1.0]
   tune: true
   type: loguniform
-  default: 0.1
+  default: 0.996
 epochs:
-  range: [50, 500]
+  range: [50, 2500]
   tune: true
   type: int
   default: 2500

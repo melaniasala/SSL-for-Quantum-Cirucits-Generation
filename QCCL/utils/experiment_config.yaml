@@ -1,7 +1,7 @@
-model_type: "byol"
+model_type: "simclr"
 train_size: 0.6
 val_size: 0.2
-embedding_size: 16
+embedding_size: 8
 hidden_size: 512
 composite_transforms_size: 7
 use_pre_paired_dataset: true
