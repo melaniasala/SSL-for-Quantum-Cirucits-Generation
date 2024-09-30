@@ -168,8 +168,8 @@ class HyperparamTuner:
         projection_size = get_hyperparameter_value(
             trial, "projection_size", self.tuning_configs["projection_size"]
         )
-        temperature = get_hyperparameter_value(
-            trial, "temperature", self.tuning_configs["temperature"]
+        tau = get_hyperparameter_value(
+            trial, "tau", self.tuning_configs["tau"]
         )
         batch_size = get_hyperparameter_value(
             trial, "batch_size", self.tuning_configs["batch_size"]
@@ -180,7 +180,7 @@ class HyperparamTuner:
 
         print(
             f"Trial hyperparameters: n_layers={n_layers}, patience={patience}, projection_size={projection_size}, "
-            f"temperature={temperature}, batch_size={batch_size}, learning_rate={learning_rate}\n"
+            f"tau={tau}, batch_size={batch_size}, learning_rate={learning_rate}\n"
         )
 
         if self.n_splits is None:
@@ -197,7 +197,7 @@ class HyperparamTuner:
                 epochs=epochs,
                 batch_size=batch_size,
                 lr=learning_rate,
-                tau=temperature,
+                tau=tau,
                 patience=patience,
                 device=self.device,
                 **self.experiment_configs["train"],
@@ -226,7 +226,7 @@ class HyperparamTuner:
                     epochs=epochs,
                     batch_size=batch_size,
                     lr=learning_rate,
-                    tau=temperature,
+                    tau=tau,
                     patience=patience,
                     device=self.device,
                     **self.experiment_configs["train"],
@@ -310,7 +310,7 @@ class HyperparamTuner:
             epochs=best_params["epochs"],
             batch_size=best_params["batch_size"],
             lr=best_params["learning_rate"],
-            tau=best_params["temperature"],
+            tau=best_params["tau"],
             #patience=best_params["patience"],
             device=self.device,
             **self.experiment_configs["train"],
