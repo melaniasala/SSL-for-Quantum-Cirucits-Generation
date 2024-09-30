@@ -16,9 +16,9 @@ from QCCL.Models import BYOLOnlineNet, BYOLTargetNet, BYOLWrapper, GCNFeatureExt
 
 from . import NTXentLoss, train, train_byol
 
-losses = {"cl": NTXentLoss(), "byol": nn.MSELoss(reduction="sum")}
+losses = {"simclr": NTXentLoss(), "byol": nn.MSELoss(reduction="sum")}
 
-train_fn = {"cl": train, "byol": train_byol}
+train_fn = {"simclr": train, "byol": train_byol}
 
 
 class HyperparamTuner:
