@@ -9,7 +9,7 @@ n_splits: 4 # number of splits for K-fold cross-validation
 
 gnn:
   in_channels: 6 # number of node features for gnn input
-  out_channels: 8 # should be equal to embedding_size
+  out_channels: 16 # should be equal to embedding_size
   pooling_strategy: "global_avg"
 
 train:
