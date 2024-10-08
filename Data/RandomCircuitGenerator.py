@@ -5,10 +5,8 @@ from qiskit.circuit.library.standard_gates import (IGate, U1Gate, U2Gate, U3Gate
                                                    CYGate, CZGate, CHGate, CRZGate, CU1Gate,
                                                    CU3Gate, SwapGate, RZZGate,
                                                    CCXGate, CSwapGate)
-from qiskit.circuit import Reset
 from qiskit.exceptions import QiskitError
 import numpy as np
-import random
 
 class RandomCircuitGenerator:
     def __init__(self, num_qubits, depth, gate_pool=None, max_depth=None):
