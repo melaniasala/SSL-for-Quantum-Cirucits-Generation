@@ -233,15 +233,16 @@ class QuantumCircuitGraph:
         :param ax: matplotlib axes object to draw the graph on
         """
         node_colors = {
-            'cx': 'purple',
-            'h': 'green',
-            'rx': 'red',
-            'ry': 'yellow',
-            'rz': 'blue',
-            'x': 'pink',
-            'y': 'orange',
-            'z': 'cyan',
-            'id': 'grey',
+            'cx': 'cornflowerblue',  # Medium pastel purple
+            'h': 'royalblue',   # Medium pastel orange
+            'rx': 'palevioletred',  # Medium pastel pink (similar to 'x')
+            'ry': 'mediumslateblue',  # Medium pastel green (similar to 'y')
+            'rz': 'mediumturquoise',  # Medium pastel lavender (similar to 'z')
+            'x': 'mediumseagreen',   # Deeper pastel pink
+            'y': 'slateblue',   # Deeper pastel green
+            'z': 'lightseagreen',   # Deeper pastel lavender
+            'id': 'gray',  # Medium pastel yellow
+            't': 'mediumpurple'    # Medium pastel blue
         }
 
         node_labels_map = {
@@ -252,9 +253,10 @@ class QuantumCircuitGraph:
             'x': 'X',
             'y': 'Y',
             'z': 'Z',
-            'c': ' ',
-            't': '+',
-            'id': 'I'
+            'ctrl': ' ',
+            'trgt': '+',
+            'id': 'I',
+            't': 'T',
         }
 
         if custom_labels is None:
@@ -265,7 +267,7 @@ class QuantumCircuitGraph:
             node_labels = custom_labels
 
         if ax is None:
-            plt.figure(figsize=(15, 4))
+            plt.figure(figsize=(3, 2.2))
             ax = plt.gca() # get current axes
 
         # nodes
@@ -276,6 +278,7 @@ class QuantumCircuitGraph:
             nodelist= [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'cx'],
             node_color=[node_colors[self.graph.nodes[node]['type']] for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'cx'], 
             node_shape='s',
+            node_size=600,
             **options)
         
         nx.draw_networkx_nodes(
@@ -284,7 +287,7 @@ class QuantumCircuitGraph:
             nodelist= [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] == 'cx'],
             node_color=node_colors['cx'],
             node_shape='o',
-            node_size=100 if not default_node_size else 300,
+            node_size=250 if not default_node_size else 300,
             **options)
 
         # edges
@@ -293,7 +296,9 @@ class QuantumCircuitGraph:
             self.node_positions, 
             edgelist=[(u, v) for u, v, data in self.graph.edges(data=True) if data['type'] != "cx"],
             width=1.0, edge_color='black',
-            arrowstyle= '-|>', arrowsize=10, arrows=True
+            arrowstyle= '-|>', arrowsize=10, arrows=True,
+            min_target_margin=12,
+            min_source_margin=10
         )
 
         #draw edges for cx gates as undirected (double directed edges)
@@ -302,8 +307,10 @@ class QuantumCircuitGraph:
             self.node_positions,
             edgelist=[(u, v) for u, v, data in self.graph.edges(data=True) if data['type'] == "cx"],
             width=2,
-            alpha=0.25,
-            edge_color='purple',
+            alpha=0.5,
+            edge_color='cornflowerblue',
+            min_target_margin=10,
+            min_source_margin=10,
         )
 
 
@@ -312,7 +319,7 @@ class QuantumCircuitGraph:
             self.graph, 
             self.node_positions, 
             node_labels, 
-            font_size=14, 
+            font_size=15, 
             font_color="whitesmoke", 
             verticalalignment="center_baseline", 
             horizontalalignment="center")
@@ -320,7 +327,6 @@ class QuantumCircuitGraph:
         
         plt.tight_layout()
         plt.axis("off")
-        plt.title("Graph representation of the Quantum Circuit")
         plt.show()
     
         # def encode_sequence(self, sequence):
@@ -370,6 +376,7 @@ class QuantumCircuitGraph:
 
         else:
             draw_circuit_and_graph((self.quantum_circuit, self.graph))
+
         
 
 
