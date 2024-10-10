@@ -202,7 +202,7 @@ def process_gate(graph, gate, layer_idx, last_nodes, node_positions, gate_type_m
                            type=gate.name, 
                            qubit=control_qubit, 
                            params=gate.op.params, 
-                           ctrl_trgt='c',
+                           ctrl_trgt='ctrl',
                            feature_vector= build_node_features_vector(gate.name,
                                                                       node_id_control, 
                                                                       gate_type_map,
@@ -214,7 +214,7 @@ def process_gate(graph, gate, layer_idx, last_nodes, node_positions, gate_type_m
                            type=gate.name, 
                            qubit=target_qubit, 
                            params=gate.op.params, 
-                           ctrl_trgt='t',
+                           ctrl_trgt='trgt',
                            feature_vector= build_node_features_vector(gate.name,
                                                                    node_id_target, 
                                                                    gate_type_map,
@@ -233,7 +233,7 @@ def process_gate(graph, gate, layer_idx, last_nodes, node_positions, gate_type_m
                     graph.add_edge(last_nodes[qubit], node_id, type='qubit', create_using=nx.DiGraph()) # edge going from last node to current node
                 last_nodes[qubit] = node_id
 
-                node_positions[node_id] = (layer_idx, -qubit) # custom position for each node
+                node_positions[node_id] = (layer_idx, -0.5*qubit) # custom position for each node
                 gate_as_nodes.append(node_id)
 
         else:
@@ -260,7 +260,7 @@ def process_gate(graph, gate, layer_idx, last_nodes, node_positions, gate_type_m
                 graph.add_edge(last_nodes[qubit], node_id, type='qubit', create_using=nx.DiGraph())
             last_nodes[qubit] = node_id
 
-            node_positions[node_id] = (layer_idx, -qubit) # custom position for the node
+            node_positions[node_id] = (layer_idx, -0.5*qubit) # custom position for the node
             gate_as_nodes.append(node_id)
 
         return gate_as_nodes
@@ -441,9 +441,10 @@ def draw_circuit_and_graph(circuit_graph_tuple, axs=None):
             'x': 'X',
             'y': 'Y',
             'z': 'Z',
-            'c': ' ',
-            't': '+',
-            'id': 'I'
+            'ctrl': ' ',
+            'trgt': '+',
+            'id': 'I',
+            't': 'T',
         }
 
     labels = {node: node_labels_map[graph.nodes[node]['type']] if graph.nodes[node]['type'] != 'cx' 
