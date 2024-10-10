@@ -1,7 +1,13 @@
 import random
-from .RandomCircuitGenerator import RandomCircuitGenerator
-from .QuantumCircuitGraph import QuantumCircuitGraph
+
 import networkx as nx
+import numpy as np
+from qiskit import Aer, execute
+from qiskit.quantum_info import Statevector
+
+from .QuantumCircuitGraph import QuantumCircuitGraph
+from .RandomCircuitGenerator import RandomCircuitGenerator
+
 
 class QuantumCircuitDataset:
     def __init__(self, circuit_generator=None, dataset_size=100, save_format='json', graph_config=None):
@@ -17,6 +23,7 @@ class QuantumCircuitDataset:
         self.dataset_size = dataset_size
         self.save_format = save_format
         self.dataset = []
+        self.statevectors = {} 
 
         if graph_config is not None:
             self.set_graph_config(graph_config)
@@ -68,8 +75,48 @@ class QuantumCircuitDataset:
     def check_equivalence(self, circuit):
         """
         Check if the generated circuit is not equivalent to another in the dataset.
+        
+        Steps:
+        1. Get the statevector from the classical simulator.
+        2. Check if the statevector has complex entries.
+        3. Sort and compare the statevector with others of the same length in the dataset.
         """
-        pass
+        # Simulate the statevector for the circuit
+        backend = Aer.get_backend('statevector_simulator')
+        job = execute(circuit, backend)
+        result = job.result()
+        statevector = np.array(result.get_statevector())
+
+        # Check if any complex entries are in the statevector
+        if any(np.iscomplex(statevector)):
+            print("Warning: Circuit has complex entries in the statevector, failing the equivalence check: equivalence check for complex statevectors not supported.")
+            return False
+
+        # Sort the statevector entries
+        ordered_statevector = np.sort(statevector)
+
+        # Get the number of qubits in the circuit
+        num_qubits = circuit.num_qubits
+
+        # Retrieve the list of statevectors for this qubit count, if any exist
+        if num_qubits in self.statevectors:
+            dataset_statevectors = self.statevectors[num_qubits]
+        else:
+            dataset_statevectors = []
+
+        # Compare the sorted statevector with each one in the dataset
+        for sv in dataset_statevectors:
+            # Compare within a given tolerance
+            if not np.allclose(ordered_statevector, sv, atol=1e-5):
+                # If at least one entry is different, the circuits are not equivalent: the check goes on
+                continue
+            else:
+                # Circuits are equivalent, fail the check
+                return False
+
+        # If no equivalent circuit was found, pass the check and store the statevector
+        self.statevectors.setdefault(num_qubits, []).append(ordered_statevector)
+        return True
 
     def check_connectivity(self, graph):
         """
