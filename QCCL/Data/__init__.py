@@ -1,6 +1,5 @@
 from .Dataset import GraphDataset, from_nx_to_geometric
-from .transforms import Compose, perform_random_transform
-from .load_data import load_graphs
+from .load_data import load_data
 from .utils import split_dataset
 
-__all__ = ['GraphDataset', 'Compose', 'perform_random_transform', 'load_graphs', 'split_dataset', 'from_nx_to_geometric']
+__all__ = ['GraphDataset', 'Compose', 'load_data', 'split_dataset', 'from_nx_to_geometric']
