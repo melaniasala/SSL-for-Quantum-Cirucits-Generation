@@ -12,7 +12,7 @@ from math import ceil
 import matplotlib.pyplot as plt
 
 class RandomCircuitGenerator:
-    def __init__(self, gate_pool=None, max_depth=None, max_gates=None):
+    def __init__(self, gate_pool=None, max_depth=None, max_gates=None, qubits_range=(3,20)):
         """
         Initialize the RandomCircuitGenerator with parameters.
         
@@ -23,20 +23,10 @@ class RandomCircuitGenerator:
         max_depth (int): Maximum depth of the circuit.
         connected (bool): Whether all qubits have to be connected.
         """
-        self.gate_pool = gate_pool if gate_pool is not None else [HGate, XGate, ZGate, CXGate, TGate]
+        self.gate_pool = gate_pool or [HGate, XGate, ZGate, CXGate, TGate]
         self.max_depth = max_depth
         self.max_n_gates = max_gates
-
-        self.circuits = []
-
-    def set_gate_pool(self, gate_pool):
-        """
-        Set the pool of gates to be used in the random circuit.
-        
-        Parameters:
-        gate_pool (list): List of gates to be used in the random circuit.
-        """
-        self.gate_pool = gate_pool
+        self.qubits_range = qubits_range
 
     def generate_circuit(self, num_qubits=None, depth=None):
         """
@@ -49,11 +39,10 @@ class RandomCircuitGenerator:
         Returns:
         QuantumCircuit: A randomly generated quantum circuit.
         """
-        if num_qubits is None:
-            num_qubits = random.randint(3, 20)
+        num_qubits = num_qubits or random.randint(*self.qubits_range)
+
         if depth is None:
             depth = self.max_depth
-
         if self.max_depth and depth > self.max_depth:
             depth = self.max_depth
 
@@ -64,7 +53,7 @@ class RandomCircuitGenerator:
     
 
 
-    def generate_circuits(self, n_samples, qubit_range=(2, None), depth_range=(2, None), max_gates=None):
+    def generate_circuits(self, n_samples, qubit_range=None, depth_range=None, max_gates=None):
         """
         Generate a specified quantity of random quantum circuits.
         
@@ -76,66 +65,30 @@ class RandomCircuitGenerator:
         if isinstance(qubit_range, int):
             min_qubits = max_qubits = qubit_range
         elif qubit_range is None:
-            min_qubits = max_qubits = self.num_qubits
+            min_qubits = max_qubits = self.qubits_range
         else:
             min_qubits, max_qubits = qubit_range
-            if max_qubits is None:
-                max_qubits = self.num_qubits
 
-        min_depth, max_depth = depth_range
-        if max_depth is None:
+        if isinstance(depth_range, int):
+            min_depth = max_depth = depth_range
+        elif depth_range is None:
+            min_depth = 2
             max_depth = self.max_depth
+        else:
+            min_depth, max_depth = depth_range
 
         if max_gates is None:
             max_gates = self.max_gates
 
+
+        circuits = []
         for _ in range(n_samples):
             num_qubits = random.randint(min_qubits, max_qubits)
             depth = random.randint(min_depth, max_depth)
-            circuit = self.generate_circuit(num_qubits, depth, max_gates)
-            self.circuits.append(circuit)
-
-
-
-    def draw_circuit(self, index=0):
-        """
-        Draw a specific generated random quantum circuit.
+            circuit = self.generate_circuit(num_qubits, depth)
+            circuits.append(circuit)
         
-        Parameters:
-        index (int): Index of the circuit in the list to draw.
-        """
-        if self.circuits and index < len(self.circuits):
-            self.circuits[index].draw('mpl')
-        else:
-            print("No circuit has been generated yet or index out of range. Please generate a circuit first.")
-
-
-    def draw_circuits(self):
-        """
-        Draw all generated random quantum circuits.
-        """
-        if self.circuits:
-            n_samples = len(self.circuits)
-            samples_per_row = 5
-            n_rows = ceil(n_samples / samples_per_row)
-            add_height = 2
-            fig, axs = plt.subplots(n_rows, samples_per_row, figsize=(15, n_samples + add_height*(1/(n_rows)**2)))
-
-        if n_rows == 1:
-            axs = np.expand_dims(axs, axis=0)
-
-        # dataset is a list of tuples (qc, qcg)
-        for i, qc in enumerate(self.circuits):
-            row = i // samples_per_row
-            col = i % samples_per_row
-
-            qc.draw('mpl', ax=axs[row, col])
-
-            plt.tight_layout()
-            plt.axis('off')
-            plt.show()
-        else:
-            print("No circuits have been generated yet. Please generate circuits first.")
+        return circuits
 
 
 
