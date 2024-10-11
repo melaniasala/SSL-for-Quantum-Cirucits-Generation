@@ -67,7 +67,7 @@ class QuantumCircuitDataset:
                 qcg = QuantumCircuitGraph(circuit)
                 
                 # Perform checks 
-                if self.check_equivalence(circuit) and self.check_connectivity(graph):
+                if self.check_equivalence(circuit) and self.check_connectivity(qcg.graph):
                     # If the circuit passes checks, add it to the dataset
                     self.dataset.append(qcg)
                     generated_count += 1
