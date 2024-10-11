@@ -1,10 +1,10 @@
 import os
 import pickle
-import networkx as nx
-import sys, os
+
+from ...Data.QuantumCircuitGraph import QuantumCircuitGraph
 
 
-def load_graphs(data_dir='../Data/raw/', file_name='handcrafted_dataset.pkl', subset=None):
+def load_data(data_dir='../Data/raw/', file_name='handcrafted_dataset.pkl', subset=None):
     file_path = os.path.join(data_dir, file_name)
     graphs, qcs = [], []
     
@@ -20,14 +20,16 @@ def load_graphs(data_dir='../Data/raw/', file_name='handcrafted_dataset.pkl', su
 
     # extract graphs and qcs separately, if needed
     for sample in dataset:
-        if isinstance(sample, tuple): # if a tuple (qc, graph)
-            qc, g = sample
+        if isinstance(sample, QuantumCircuitGraph):  # if a QuantumCircuitGraph object
+            qc = sample.quantum_circuit
+            g = sample.graph
             graphs.append(g)
             qcs.append(qc)
-        elif all(isinstance(graph, tuple) for graph in sample):# if a list of tuples (qc, graph) 
-            qc, g = zip(*sample)
-            qcs.append(list(qc))
-            graphs.append(list(g))
+        elif all(isinstance(s, QuantumCircuitGraph) for s in sample):  # if a list of QuantumCircuitGraph objects
+            qc = [s.quantum_circuit for s in sample]
+            g = [s.graph for s in sample]
+            qcs.append(qc)
+            graphs.append(g)
 
     print(f"Loaded {len(graphs)} samples and {len(qcs)} quantum circuits from subset.")
     
@@ -47,31 +49,3 @@ def collect_from_dict(dictionary):
                 print(f"\tCollected 1 sample from {k}.")
                 
     return graphs
-
-# def collect_from_dict(dictionary):
-#     graphs = []
-#     for k, v in dictionary.items():
-#         if isinstance(v, dict):
-#             graphs.extend(collect_from_dict(v))
-#         elif isinstance(v, list):
-#             g, n = collect_from_list(v, k)
-#             graphs.extend(g)
-#             print(f"Collected {n} graphs from {k}.")
-#         else:
-#             graphs.extend(v)
-#             print(f"Collected {len(v)} graphs from {k}.")
-#     return graphs
-
-
-# def collect_from_list(lst, k):
-#     graphs = []
-#     n = 0
-#     for item in lst:
-#         if isinstance(item, list):
-#             g, n_new = collect_from_list(item, k)
-#             graphs.extend(g)
-#             n += n_new
-#         else:
-#             n += 1
-#             graphs.append(item)
-#     return graphs, n
