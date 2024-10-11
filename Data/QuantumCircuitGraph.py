@@ -358,13 +358,17 @@ class QuantumCircuitGraph:
     
 
     # define a method to draw both the circuit and the correspondent graph
-    def draw_circuit_and_graph(self, circuit_like_graph=False):
+    def draw_circuit_and_graph(self, circuit_like_graph=False, axes=None):
         """
         Visualizes the quantum circuit and its graph representation side by side.
         """
-        if circuit_like_graph: 
-            fig, axes = plt.subplots(1, 2, figsize=(14, 7))
-            
+        if not axes:
+            _, axes = plt.subplots(1, 2, figsize=(14, 7))
+        else:
+            if len(axes) != 2:
+                raise ValueError("Provide exactly two axes for the combined plot.")
+        
+        if circuit_like_graph:            
             self.quantum_circuit.draw(output='mpl', ax=axes[0])
             axes[0].set_title("Quantum Circuit")
         
@@ -375,7 +379,7 @@ class QuantumCircuitGraph:
             plt.show()
 
         else:
-            draw_circuit_and_graph((self.quantum_circuit, self.graph))
+            draw_circuit_and_graph((self.quantum_circuit, self.graph), axes)
 
         
 
