@@ -4,6 +4,7 @@ from ...Data.QuantumCircuitGraph import QuantumCircuitGraph
 from ...Data.data_preprocessing import build_graph_from_circuit
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import XGate, HGate, CXGate, ZGate, TGate
+from nx.algorithmds.isomorphism.vf2 import DiGraphMatcher
 
 class NoMatchingSubgraphsError(Exception):
     """Exception raised when no matching subgraphs are found for the transformation."""
@@ -29,6 +30,8 @@ class CircuitTransformation:
 
         self.gate_pool = [XGate(), HGate(), CXGate(), ZGate(), TGate()] # Pool of available gates
 
+        self.graph_to_circuit_mapping = None  # Mapping between circuit's gate index and graph nodes
+
     def apply(self):
         """Apply the transformation to the circuit graph."""
         self.create_pattern_and_replacement()  # Step 1: Generate pattern and replacement subgraphs
@@ -52,9 +55,14 @@ class CircuitTransformation:
             # No pattern means transformation applies everywhere, no need to search
             return
         else:
+            # shuffle the pattern subgraphs to avoid bias
+            random.shuffle(self.pattern_subgraph)
             # iterate over all possible pattern subgraphs until a match is found; if not, raise NoMatchingSubgraphsError
             for subgraph in self.pattern_subgraph:
-                self.matching_subgraphs = nx.algorithms.isomorphism.vf2.subgraph_isomorphisms(self.graph, subgraph)
+                matcher = DiGraphMatcher(self.graph, subgraph, node_match=lambda n1, n2: n1['type'] == n2['type'])
+                self.matching_subgraphs = list(matcher.subgraph_isomorphisms_iter())
+                # self.matching_subgraphs is a list of dictionaries, where each dictionary maps nodes in the pattern to nodes in the graph (by node labels, graph_label:pattern_label)
+                # TODO: a mapping between node labels and indices in circuit.data is needed if operating on the circuit itself, rather than the graph
                 if self.matching_subgraphs:
                     break
 
@@ -114,64 +122,71 @@ class AddIdentityGatesTransformation(CircuitTransformation):
         return QuantumCircuitGraph(transformed_qc)
 
 
-    class RemoveIdentityGatesTransformation(CircuitTransformation):
-        """Transformation to remove gates equivalent to the identity operation."""
+class RemoveIdentityGatesTransformation(CircuitTransformation):
+    """Transformation to remove gates equivalent to the identity operation."""
 
-        def __init__(self, qcg):
-            super().__init__(qcg)
+    def __init__(self, qcg):
+        super().__init__(qcg)
 
-        def create_pattern_and_replacement(self):
-            """
-            Create the pattern to match identity gates and the corresponding replacement.
-            Since we're only removing gates, the replacement is an empty list.
-            """
-            self.pattern_subgraph = []
+    def create_pattern_and_replacement(self):
+        """
+        Create the pattern to match identity gates and the corresponding replacement.
+        Since we're only removing gates, the replacement is an empty list.
+        """
+        self.pattern_subgraph = []
 
-            # Iterate over the available gates to create all possible identity patterns
-            for gate in self.gate_pool:
-                if gate.num_qubits == 1:
-                    # Define the pattern to match the identity gates
-                    pattern_subcircuit = QuantumCircuit(1)
-                    pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0]])
-                    pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0]])
+        # Iterate over the available gates to create all possible identity patterns
+        for gate in self.gate_pool:
+            if gate.num_qubits == 1:
+                # Define the pattern to match the identity gates
+                pattern_subcircuit = QuantumCircuit(1)
+                pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0]])
+                pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0]])
 
-                    self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit)) #TODO: order? returned?
+                self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, construct_by_layer=False, data=False))
 
-                if gate.num_qubits == 2:
-                    # Define the pattern to match the identity gates
-                    pattern_subcircuit = QuantumCircuit(2)
-                    pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
-                    pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+            if gate.num_qubits == 2:
+                # Define the pattern to match the identity gates
+                pattern_subcircuit = QuantumCircuit(2)
+                pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+                pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
 
-                    self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit))
+                self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, construct_by_layer=False, data=False))
 
-            # Since we're only removing gates, the replacement is an empty list
-            self.replacement = []
+        # Since we're only removing gates, the replacement is an empty list
+        self.replacement = []
 
-        def execute_transformation(self):
-            """Apply the transformation by removing identity gates from the circuit."""
-            # Get the list of current operations in the circuit
-            operations = list(self.circuit.data)
+    def execute_transformation(self):
+        """Apply the transformation by removing identity gates from the circuit."""
+        # Get the list of current operations in the circuit
+        operations = list(self.circuit.data)
 
-            # Retrieve indices of gates in the matching subgraph
-            if not self.matching_subgraphs:
-                raise TransformationError("No matching subgraphs found for the identity removal transformation.")
-            
-            matching_idx = list(self.matching_subgraphs.values())[0]
+        # Retrieve indices of gates in the matching subgraph
+        if not self.matching_subgraphs:
+            raise TransformationError("No matching subgraphs found for the identity removal transformation.")
+        
+        # Select randomly a matching subgraph to remove
+        matching = random.choice(self.matching_subgraphs)
+        
+        if not self.graph_to_circuit_mapping:
+            self.compute_graph_to_circuit_mapping()
+        matching_idxs = [self.graph_to_circuit_mapping[node] for node in matching.keys()]
+        # retrieve unique indices
+        matching_idxs = list(set(matching_idxs))
 
-            # Remove the identity gates from the circuit
-            transformed_operations = []
-            for idx, (inst, qargs, cargs) in enumerate(operations):
-                if idx not in matching_idx:
-                    transformed_operations.append((inst, qargs, cargs))
+        # Remove the identity gates from the circuit
+        transformed_operations = []
+        for idx, op in enumerate(operations):
+            if idx not in matching_idxs:
+                transformed_operations.append(op)
 
-            # Create a new circuit with the transformed operations
-            transformed_qc = QuantumCircuit(self.num_qubits) # TODO: what if removing gates changes the number of qubits? Or graph is empty?
-            for inst, qargs, cargs in transformed_operations:
-                transformed_qc.append(inst, qargs, cargs)
+        # Create a new circuit with the transformed operations
+        transformed_qc = QuantumCircuit(self.num_qubits)
+        for inst, qargs, cargs in transformed_operations:
+            transformed_qc.append(inst, qargs, cargs)
 
-            # Return the new circuit graph representation
-            return QuantumCircuitGraph(transformed_qc)
+        # Return the new circuit graph representation
+        return QuantumCircuitGraph(transformed_qc)
 
 
 
