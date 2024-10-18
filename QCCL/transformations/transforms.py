@@ -62,7 +62,7 @@ class CircuitTransformation:
                 matcher = DiGraphMatcher(self.graph, subgraph, node_match=lambda n1, n2: n1['type'] == n2['type'])
                 self.matching_subgraphs = list(matcher.subgraph_isomorphisms_iter())
                 # self.matching_subgraphs is a list of dictionaries, where each dictionary maps nodes in the pattern to nodes in the graph (by node labels, graph_label:pattern_label)
-                # TODO: a mapping between node labels and indices in circuit.data is needed if operating on the circuit itself, rather than the graph
+                
                 if self.matching_subgraphs:
                     break
 
@@ -140,16 +140,16 @@ class RemoveIdentityGatesTransformation(CircuitTransformation):
             if gate.num_qubits == 1:
                 # Define the pattern to match the identity gates
                 pattern_subcircuit = QuantumCircuit(1)
-                pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0]])
-                pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0]])
+                pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0]])
+                pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0]])
 
                 self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, construct_by_layer=False, data=False))
 
             if gate.num_qubits == 2:
                 # Define the pattern to match the identity gates
                 pattern_subcircuit = QuantumCircuit(2)
-                pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
-                pattern_subcircuit.add_gate(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+                pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+                pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
 
                 self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, construct_by_layer=False, data=False))
 
@@ -162,17 +162,7 @@ class RemoveIdentityGatesTransformation(CircuitTransformation):
         operations = list(self.circuit.data)
 
         # Retrieve indices of gates in the matching subgraph
-        if not self.matching_subgraphs:
-            raise TransformationError("No matching subgraphs found for the identity removal transformation.")
-        
-        # Select randomly a matching subgraph to remove
-        matching = random.choice(self.matching_subgraphs)
-        
-        if not self.graph_to_circuit_mapping:
-            self.compute_graph_to_circuit_mapping()
-        matching_idxs = [self.graph_to_circuit_mapping[node] for node in matching.keys()]
-        # retrieve unique indices
-        matching_idxs = list(set(matching_idxs))
+        matching_idxs = self.get_matching_indices()
 
         # Remove the identity gates from the circuit
         transformed_operations = []
@@ -187,114 +177,179 @@ class RemoveIdentityGatesTransformation(CircuitTransformation):
 
         # Return the new circuit graph representation
         return QuantumCircuitGraph(transformed_qc)
+   
 
+class CommuteCNOTsTransformation(CircuitTransformation):
+    """Transformation to commute two CNOT gates in the circuit."""
 
+    def __init__(self, qcg):
+        super().__init__(qcg)
 
+    def create_pattern_and_replacement(self):
+        """
+        Create the pattern to match two CNOT gates (with the same control or same target qubits)
+        The replacement is the same as the pattern, but with the gates commuted: no need to define it,
+        gates will be just switched in the circuit.
+        """
+        # Define the pattern to match two CNOT gates with the same control
+        pattern_subcircuit = QuantumCircuit(3)
+        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[2]])
 
+        self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, construct_by_layer=False, data=False))
 
+        # Define the pattern to match two CNOT gates with the same target
+        pattern_subcircuit = QuantumCircuit(3)
+        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[2], pattern_subcircuit.qubits[1]])
 
+        self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, construct_by_layer=False, data=False))
 
+        # Since the replacement is the same as the pattern, no need to define it
+        self.replacement = None
 
-    def apply(self):
-        # randomly select the gates to add
-        selected_gates = random.choice([('X', 'X'), ('H', 'H'), ('Z', 'Z'), ('CNOT', 'CNOT')])
+    def execute_transformation(self):
+        """Apply the transformation by removing identity gates from the circuit."""
+        # Retrieve indices of gates in the matching subgraph
+        matching_idxs = self.get_matching_indices()
 
-        # if gate is single qubit
-        if selected_gates[0] in ['X', 'H', 'Z']:
-            # find locations where identity gates can be added, wich are
-            # - wires in the circuit (as tuples of nodes)
-            # - nodes that corresponds to first or last gate for a qubit in a circuit (as nodes)
-            locations = self._find_wire() + self._find_first_gate() + self._find_last_gate()
+        # Get the list of current operations in the circuit
+        operations = list(self.circuit.data)
+        transformed_operations = operations.copy() 
 
-        # if gate is two qubit
+        # Check if matching_idxs contains exactly two elements
+        if len(matching_idxs) == 2:
+            idx1, idx2 = matching_idxs
+
+            # Swap the operations at idx1 and idx2
+            transformed_operations[idx1], transformed_operations[idx2] = transformed_operations[idx2], transformed_operations[idx1]
         else:
-            # find locations where identity gates can be added, wich are
-            # - wires in the circuit (as tuples of 4 nodes)
-            # - nodes that corresponds to first or last gate for a qubit in a circuit (as nodes)
-            locations = self._find_wire_two_qubit() + self._find_first_gate_two_qubit() + self._find_last_gate_two_qubit()
+            raise TransformationError(f"Expected exactly two matching indices for commutations, but got {len(matching_idxs)}: {matching_idxs}")
 
-        # if no locations are found, return the original circuit
-        if not locations:
-            return self.graph
+        # Create a new circuit with the transformed operations
+        transformed_qc = QuantumCircuit(self.num_qubits)
+        for inst, qargs, cargs in transformed_operations:
+            transformed_qc.append(inst, qargs, cargs)
 
-        # randomly select a location to add the identity gates
-        selected_location = random.choice(locations)       
-
-        # if the selected location is a wire
-        if isinstance(selected_location, tuple):
-            self._add_gates_wire(selected_location, selected_gates)
-
-        # if the selected location is a node
-        else:
-            self._add_gates_begin_end(selected_location, selected_gates)
-
-        return self.graph
+        # Return the new circuit graph representation
+        return QuantumCircuitGraph(transformed_qc)
     
-    def _find_wire(self):
-        # select a random edge in the circuit
-        edge = random.choice(list(self.graph.edges))
 
-        # ckeck if the edge is a wire (not a edge going from a control node to a target node or vice versa)
-        if not is_same_cnot_gate(self.graph.nodes[edge[0]]['label'], self.graph.nodes[edge[1]]['label']):
-            return edge
-        else:
-            return self._find_wire()
 
-    def _find_first_gate(self):
-        # find the first gate for each qubit in the circuit
-        first_gates = [node for node in self.graph.nodes if not list(self.graph.predecessors(node))]
+# ------------------ Helper functions ------------------ #
 
-        # if there are no first gates, choose another node
-        if not first_gates:
-            return self._find_first_gate()
-
-        return first_gates
+def get_matching_indices(self):
+    # Retrieve indices of gates in the matching subgraph
+    if not self.matching_subgraphs:
+        raise TransformationError("No matching subgraphs found for the identity removal transformation.")
     
-    def _find_last_gate(self):
-        # find the last gate for each qubit in the circuit
-        last_gates = [node for node in self.graph.nodes if not list(self.graph.successors(node))]
-
-        # if there are no last gates, choose another node
-        if not last_gates:
-            return self._find_last_gate()
-
-        return last_gates
+    # Select randomly a matching subgraph to remove
+    matching = random.choice(self.matching_subgraphs)
     
-    def _find_wire_two_qubit(self):
-        # select a random edge in the circuit
-        edge = random.choice(list(self.graph.edges))
+    if not self.graph_to_circuit_mapping:
+        self.compute_graph_to_circuit_mapping()
+    matching_idxs = [self.graph_to_circuit_mapping[node] for node in matching.keys()]
+    # retrieve unique indices
+    return list(set(matching_idxs))
 
-        # if the edge is not a wire, choose another edge
-        if is_same_cnot_gate(self.graph.nodes[edge[0]]['label'], self.graph.nodes[edge[1]]['label']):
-            return self._find_wire_two_qubit()
+
+#     def apply(self):
+#         # randomly select the gates to add
+#         selected_gates = random.choice([('X', 'X'), ('H', 'H'), ('Z', 'Z'), ('CNOT', 'CNOT')])
+
+#         # if gate is single qubit
+#         if selected_gates[0] in ['X', 'H', 'Z']:
+#             # find locations where identity gates can be added, wich are
+#             # - wires in the circuit (as tuples of nodes)
+#             # - nodes that corresponds to first or last gate for a qubit in a circuit (as nodes)
+#             locations = self._find_wire() + self._find_first_gate() + self._find_last_gate()
+
+#         # if gate is two qubit
+#         else:
+#             # find locations where identity gates can be added, wich are
+#             # - wires in the circuit (as tuples of 4 nodes)
+#             # - nodes that corresponds to first or last gate for a qubit in a circuit (as nodes)
+#             locations = self._find_wire_two_qubit() + self._find_first_gate_two_qubit() + self._find_last_gate_two_qubit()
+
+#         # if no locations are found, return the original circuit
+#         if not locations:
+#             return self.graph
+
+#         # randomly select a location to add the identity gates
+#         selected_location = random.choice(locations)       
+
+#         # if the selected location is a wire
+#         if isinstance(selected_location, tuple):
+#             self._add_gates_wire(selected_location, selected_gates)
+
+#         # if the selected location is a node
+#         else:
+#             self._add_gates_begin_end(selected_location, selected_gates)
+
+#         return self.graph
+    
+#     def _find_wire(self):
+#         # select a random edge in the circuit
+#         edge = random.choice(list(self.graph.edges))
+
+#         # ckeck if the edge is a wire (not a edge going from a control node to a target node or vice versa)
+#         if not is_same_cnot_gate(self.graph.nodes[edge[0]]['label'], self.graph.nodes[edge[1]]['label']):
+#             return edge
+#         else:
+#             return self._find_wire()
+
+#     def _find_first_gate(self):
+#         # find the first gate for each qubit in the circuit
+#         first_gates = [node for node in self.graph.nodes if not list(self.graph.predecessors(node))]
+
+#         # if there are no first gates, choose another node
+#         if not first_gates:
+#             return self._find_first_gate()
+
+#         return first_gates
+    
+#     def _find_last_gate(self):
+#         # find the last gate for each qubit in the circuit
+#         last_gates = [node for node in self.graph.nodes if not list(self.graph.successors(node))]
+
+#         # if there are no last gates, choose another node
+#         if not last_gates:
+#             return self._find_last_gate()
+
+#         return last_gates
+    
+#     def _find_wire_two_qubit(self):
+#         # select a random edge in the circuit
+#         edge = random.choice(list(self.graph.edges))
+
+#         # if the edge is not a wire, choose another edge
+#         if is_same_cnot_gate(self.graph.nodes[edge[0]]['label'], self.graph.nodes[edge[1]]['label']):
+#             return self._find_wire_two_qubit()
         
-        # find cnot that surrounds the wire, which are the last cnot preceding the wire and the first cnot succeeding the wire
-        # CNOT1 --> ... --> wire --> ... --> CNOT2
-        predecessors = list(self.graph.predecessors(edge[0]))
-        successors = list(self.graph.successors(edge[1]))
-        # pred_cnot = 
-        # succ_cnot =
+#         # find cnot that surrounds the wire, which are the last cnot preceding the wire and the first cnot succeeding the wire
+#         # CNOT1 --> ... --> wire --> ... --> CNOT2
+#         predecessors = list(self.graph.predecessors(edge[0]))
+#         successors = list(self.graph.successors(edge[1]))
+#         # pred_cnot = 
+#         # succ_cnot =
         
 
 
-
-
-
-def is_same_cnot_gate(label1, label2):
-    """
-    Check if two node labels belong to the same CNOT gate.
+# def is_same_cnot_gate(label1, label2):
+#     """
+#     Check if two node labels belong to the same CNOT gate.
     
-    Args:
-        label1 (str): The first node label.
-        label2 (str): The second node label.
+#     Args:
+#         label1 (str): The first node label.
+#         label2 (str): The second node label.
         
-    Returns:
-        bool: True if both labels represent the same CNOT gate, False otherwise.
-    """
-    label1 = label1.replace('_control_', '_split_').replace('_target_', '_split_').split('_split_')
-    label2 = label2.replace('_control_', '_split_').replace('_target_', '_split_').split('_split_')
+#     Returns:
+#         bool: True if both labels represent the same CNOT gate, False otherwise.
+#     """
+#     label1 = label1.replace('_control_', '_split_').replace('_target_', '_split_').split('_split_')
+#     label2 = label2.replace('_control_', '_split_').replace('_target_', '_split_').split('_split_')
     
-    return label1 == label2
+#     return label1 == label2
 
 
 
