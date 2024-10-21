@@ -62,19 +62,23 @@ class CircuitTransformation:
             random.shuffle(self.pattern_subgraph)
             # iterate over all possible pattern subgraphs until a match is found; if not, raise NoMatchingSubgraphsError
             for subgraph in self.pattern_subgraph:
-                matcher = DiGraphMatcher(self.graph, subgraph, node_match=lambda n1, n2: n1['type'] == n2['type'])
-                matching_subgraphs = list(matcher.subgraph_isomorphisms_iter())
+                matcher = DiGraphMatcher(self.graph, subgraph, 
+                                         node_match=lambda n1, n2: n1['type'] == n2['type'] and n1['ctrl_trgt'] == n2['ctrl_trgt'])
+                matching_subgraphs = list(matcher.subgraph_isomorphisms_iter()) 
                 # matching_subgraphs is a list of dictionaries, where each dictionary maps nodes in the pattern to nodes in the graph (by node labels, graph_label:pattern_label)
                 
                 if matching_subgraphs:
                     break
+            
+            print(f"Matching subgraphs: {matching_subgraphs}")
 
             if not matching_subgraphs:
                 raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")
             
             # Shuffle the matching subgraphs to avoid bias and store a single match
             random.shuffle(matching_subgraphs)
-            self.matching_subgraph = matching_subgraphs[0]
+            print(f"Matching subgraph selected: {matching_subgraphs[0]}")
+            self.matching_subgraph = matching_subgraphs[0] # TODO: what if only one match is found?
             
     def create_replacement(self):
         """Generate the replacement subgraph to be applied."""
@@ -100,6 +104,8 @@ class CircuitTransformation:
 
         # Initialize a graph node index tracker
         circuit_index = 0
+
+        print(f"Graph nodes: {self.graph.nodes}")
 
         for node in self.graph.nodes:
             if 'cx' in node:  # Handle CNOT nodes
@@ -190,51 +196,65 @@ class RemoveIdentityGatesTransformation(CircuitTransformation):
 
     def create_pattern(self):
         """ Create the pattern to match identity gates."""
-        self.pattern_subgraph = []
+        try:
+            self.pattern_subgraph = []
 
-        # Iterate over the available gates to create all possible identity patterns
-        for gate in self.gate_pool:
-            if gate.num_qubits == 1:
-                # Define the pattern to match the identity gates
-                pattern_subcircuit = QuantumCircuit(1)
-                pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0]])
-                pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0]])
+            # Iterate over the available gates to create all possible identity patterns
+            for gate in self.gate_pool:
+                if gate.num_qubits == 1:
+                    # Define the pattern to match the identity gates
+                    pattern_subcircuit = QuantumCircuit(1)
+                    pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0]])
+                    pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0]])
 
-                self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
+                    self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
 
-            if gate.num_qubits == 2:
-                # Define the pattern to match the identity gates
-                pattern_subcircuit = QuantumCircuit(2)
-                pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
-                pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+                if gate.num_qubits == 2:
+                    # Define the pattern to match the identity gates
+                    pattern_subcircuit = QuantumCircuit(2)
+                    pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+                    pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
 
-                self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
+                    self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
+        
+        except Exception as e:
+            raise TransformationError(f"Error while creating pattern: {e}")
+
 
     def create_replacement(self):
+        """No replacement is necessary, we are just removing identity gates."""
         pass
 
     def apply_transformation(self):
         """Apply the transformation by removing identity gates from the circuit."""
-        # Get the list of current operations in the circuit
-        operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
+        try:
+            # Get the list of current operations in the circuit
+            operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
+            print(f"Current operations: {operations}")
 
-        # Retrieve indices of gates in the matching subgraph
-        matching_idxs = self.get_matching_indices()
+            # Retrieve indices of gates in the matching subgraph
+            matching_idxs = self.get_matching_indices()
+            print(f"Graph to circuit mapping: {self.graph_to_circuit_mapping}")
+            print(f"Matching indices: {matching_idxs}")
 
-        # Remove the identity gates from the circuit
-        transformed_operations = []
-        for idx, op in enumerate(operations):
-            if idx not in matching_idxs:
-                transformed_operations.append(op)
+            # Remove the identity gates from the circuit
+            transformed_operations = []
+            for idx, op in enumerate(operations):
+                if idx not in matching_idxs:
+                    transformed_operations.append(op)
+            print(f"Transformed operations: {transformed_operations}")
 
-        # Create a new circuit with the transformed operations
-        transformed_qc = QuantumCircuit(self.num_qubits)
-        for instruction in transformed_operations:
-            inst, qargs, cargs = instruction    
-            transformed_qc.append(inst, qargs, cargs)
+            # Create a new circuit with the transformed operations
+            transformed_qc = QuantumCircuit(self.num_qubits)
+            for instruction in transformed_operations:
+                inst, qargs, cargs = instruction    
+                transformed_qc.append(inst, qargs, cargs)
 
-        # Return the new circuit graph representation
-        return QuantumCircuitGraph(transformed_qc)
+            # Return the new circuit graph representation
+            return QuantumCircuitGraph(transformed_qc)
+        
+        except Exception as e:
+            raise TransformationError(f"Failed to apply the transformation: {e}")
    
 
 
