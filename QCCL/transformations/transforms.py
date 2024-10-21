@@ -27,6 +27,7 @@ class CircuitTransformation:
         self.gate_type_map = qcg.GATE_TYPE_MAP
 
         self.matching_subgraph = None  # Stores found subgraph matches
+        self.matching_key = None  # Key of the matching subgraph (not used for all transformations)
         self.pattern_subgraph = None  # Pattern subgraph to be matched
         self.replacement = None  # Replacement subgraph
 
@@ -61,16 +62,18 @@ class CircuitTransformation:
             # shuffle the pattern subgraphs to avoid bias
             random.shuffle(self.pattern_subgraph)
             # iterate over all possible pattern subgraphs until a match is found; if not, raise NoMatchingSubgraphsError
-            for subgraph in self.pattern_subgraph:
+            for key, subgraph in self.pattern_subgraph:
                 matcher = DiGraphMatcher(self.graph, subgraph, 
                                          node_match=lambda n1, n2: n1['type'] == n2['type'] and n1['ctrl_trgt'] == n2['ctrl_trgt'])
                 matching_subgraphs = list(matcher.subgraph_isomorphisms_iter()) 
+                matching_key = key
                 # matching_subgraphs is a list of dictionaries, where each dictionary maps nodes in the pattern to nodes in the graph (by node labels, graph_label:pattern_label)
                 
                 if matching_subgraphs:
                     break
             
             print(f"Matching subgraphs: {matching_subgraphs}")
+            print(f"Matching key: {matching_key}")
 
             if not matching_subgraphs:
                 raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")
@@ -78,7 +81,8 @@ class CircuitTransformation:
             # Shuffle the matching subgraphs to avoid bias and store a single match
             random.shuffle(matching_subgraphs)
             print(f"Matching subgraph selected: {matching_subgraphs[0]}")
-            self.matching_subgraph = matching_subgraphs[0] # TODO: what if only one match is found?
+            self.matching_subgraph = matching_subgraphs[0] 
+            self.matching_key = matching_key
             
     def create_replacement(self):
         """Generate the replacement subgraph to be applied."""
@@ -207,7 +211,7 @@ class RemoveIdentityGatesTransformation(CircuitTransformation):
                     pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0]])
                     pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0]])
 
-                    self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
+                    self.pattern_subgraph.append((None, build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
 
                 if gate.num_qubits == 2:
                     # Define the pattern to match the identity gates
@@ -215,7 +219,7 @@ class RemoveIdentityGatesTransformation(CircuitTransformation):
                     pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
                     pattern_subcircuit.append(gate, [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
 
-                    self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
+                    self.pattern_subgraph.append((None, build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
         
         except Exception as e:
             raise TransformationError(f"Error while creating pattern: {e}")
@@ -426,12 +430,21 @@ class SwapControlTargetTransformation(CircuitTransformation):
             self.pattern_subgraph = []
 
             # Define the pattern to match a CNOT gate
+            #  ──■──
+            #  ┌─┴─┐
+            #  ┤ X ├
+            #  └───┘
             pattern_subcircuit = QuantumCircuit(2)
             pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
 
-            self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
+            self.pattern_subgraph.append(('cx',build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
 
-            # Define the pattern to match Hadamard gates + CNOT
+            # Define the pattern to match 4 Hadamard gates + CNOT
+            #  ┌───┐     ┌───┐
+            #  ┤ H ├──■──┤ H ├
+            #  ├───┤┌─┴─┐├───┤
+            #  ┤ H ├┤ X ├┤ H ├
+            #  └───┘└───┘└───┘
             pattern_subcircuit = QuantumCircuit(2)
             pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[0]])
             pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[1]])
@@ -439,7 +452,48 @@ class SwapControlTargetTransformation(CircuitTransformation):
             pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[0]])
             pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[1]])
 
-            self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
+            self.pattern_subgraph.append(('h-h-cx-h-h', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
+
+            # Define the pattern to match 2 Hadamard gates (before) + CNOT
+            #  ┌───┐
+            #  ┤ H ├──■──
+            #  ├───┤┌─┴─┐
+            #  ┤ H ├┤ X ├
+            #  └───┘└───┘
+            pattern_subcircuit = QuantumCircuit(2)
+            pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[0]])
+            pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[1]])
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+
+            self.pattern_subgraph.append(('h-h-cx', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
+
+            # Define the pattern to match CNOT + 2 Hadamard gates (after)
+            #       ┌───┐
+            #  ──■──┤ H ├
+            #  ┌─┴─┐├───┤
+            #  ┤ X ├┤ H ├
+            #  └───┘└───┘
+            pattern_subcircuit = QuantumCircuit(2)
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+            pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[0]])
+            pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[1]])
+
+            self.pattern_subgraph.append(('cx-h-h', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
+
+            # Define the pattern to match Hadamard gate (on control) + CNOT + Hadamard gate (on control)
+            #  ┌───┐     ┌───┐
+            #  ┤ H ├──■──┤ H ├
+            #  └───┘┌─┴─┐└───┘
+            #  ─────┤ X ├─────
+            #       └───┘       
+            pattern_subcircuit = QuantumCircuit(2)
+            pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[0]])
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+            pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[0]])
+
+            self.pattern_subgraph.append(('h-cx-h', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
+
+            print(f"Pattern subgraph: {self.pattern_subgraph}")
 
         except Exception as e:
             raise TransformationError(f"Failed to create pattern: {e}")
@@ -454,6 +508,9 @@ class SwapControlTargetTransformation(CircuitTransformation):
             # Get the qubits on which the CNOT gate acts
             if not self.matching_subgraph:
                 raise TransformationError("No matching subgraphs found for the control-target swap transformation.")
+            
+            if not self.matching_key:
+                raise TransformationError("No matching key found for the control-target swap transformation.")
             
             # Retrieve the control and target qubits from the matching subgraph
             control_qubit = None
@@ -473,7 +530,7 @@ class SwapControlTargetTransformation(CircuitTransformation):
             if control_qubit is None or target_qubit is None:
                 raise TransformationError("Could not find both control and target qubits in the subgraph.")
 
-            if len(self.matching_subgraph.keys()) == 2: # CNOT -> H, H, CNOT, H, H
+            if self.matching_key == 'cx': # CNOT -> H, H, CNOT, H, H
                 replacement = []
 
                 replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
@@ -482,9 +539,27 @@ class SwapControlTargetTransformation(CircuitTransformation):
                 replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
                 replacement.append((HGate(), [self.circuit.qubits[target_qubit]], []))
 
-            elif len(self.matching_subgraph.keys()) == 6: # H, H, CNOT, H, H -> CNOT
+            elif self.matching_key == 'h-h-cx-h-h': # H, H, CNOT, H, H -> CNOT
                 # Create replacement subgraph with CNOT gate
                 replacement = ((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
+
+            elif self.matching_key == 'h-h-cx': # H, H, CNOT -> CNOT, H, H
+                replacement = []
+                replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
+                replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
+                replacement.append((HGate(), [self.circuit.qubits[target_qubit]], []))
+
+            elif self.matching_key == 'cx-h-h': # CNOT, H, H -> H, H, CNOT
+                replacement = []
+                replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
+                replacement.append((HGate(), [self.circuit.qubits[target_qubit]], []))
+                replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
+
+            elif self.matching_key == 'h-cx-h': # H, CNOT, H -> H, CNOT, H
+                replacement = []
+                replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
+                replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
+                replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
 
             else:
                 raise TransformationError(f"Expected exactly two or six node in subgraph to be matched, but got {len(self.matching_subgraph.keys())}: {self.matching_subgraph.keys()}")
@@ -509,12 +584,12 @@ class SwapControlTargetTransformation(CircuitTransformation):
             replacement = self.replacement
 
             # Check if matching_idxs contains exactly (CNOT)
-            if len(matching_idxs) == 1: # CNOT -> H, H, CNOT, H, H
+            if self.matching_key == 'cx': # CNOT -> H, H, CNOT, H, H
                 idx = matching_idxs[0]
                 # Swap
                 transformed_operations = operations[:idx] + replacement + operations[idx+1:]
 
-            elif len(matching_idxs) == 5: # H, H, CNOT, H, H -> CNOT
+            elif self.matching_key == 'h-h-cx-h-h': # H, H, CNOT, H, H -> CNOT
                 idx_h1, idx_h2, idx_cnot, idx_h3, idx_h4 = matching_idxs
                 transformed_operations = []
 
@@ -524,9 +599,40 @@ class SwapControlTargetTransformation(CircuitTransformation):
                     elif i not in [idx_h1, idx_h2, idx_h3, idx_h4]:
                         transformed_operations.append(op)  # Keep all elements not in the matching indices
             
+            elif self.matching_key == 'h-h-cx': # H, H, CNOT -> CNOT, H, H
+                idx_h1, idx_h2, idx_cnot = matching_idxs
+                transformed_operations = []
+
+                for i, op in enumerate(operations):
+                    if i == idx_cnot:
+                        transformed_operations.extend(replacement) 
+                    elif i not in [idx_h1, idx_h2]:
+                        transformed_operations.append(op)
+
+            elif self.matching_key == 'cx-h-h': # CNOT, H, H -> H, H, CNOT
+                idx_cnot, idx_h1, idx_h2 = matching_idxs
+                transformed_operations = []
+
+                for i, op in enumerate(operations):
+                    if i == idx_cnot:
+                        transformed_operations.extend(replacement)
+                    elif i not in [idx_h1, idx_h2]:
+                        transformed_operations.append(op)
+
+            elif self.matching_key == 'h-cx-h': # H, CNOT, H -> H, CNOT, H
+                idx_h1, idx_cnot, idx_h2 = matching_idxs
+                transformed_operations = []
+
+                for i, op in enumerate(operations):
+                    if i == idx_cnot:
+                        transformed_operations.extend(replacement)
+                    elif i not in [idx_h1, idx_h2]:
+                        transformed_operations.append(op)
+
             else:
                 raise TransformationError(f"Expected exactly one or five matching index for control-target swap, but got {len(matching_idxs)}: {matching_idxs}")
 
+            print(f"Transformed operations: {transformed_operations}")
             # Create a new circuit with the transformed operations
             transformed_qc = QuantumCircuit(self.num_qubits)
             for instruction in transformed_operations:
