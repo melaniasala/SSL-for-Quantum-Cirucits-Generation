@@ -5,7 +5,6 @@ from Data.data_preprocessing import build_graph_from_circuit
 from Data.QuantumCircuitGraph import QuantumCircuitGraph
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import CXGate, HGate, TGate, XGate, ZGate
-from qiskit.circuit.instruction import Instruction
 
 
 class NoMatchingSubgraphsError(Exception):
@@ -133,41 +132,54 @@ class AddIdentityGatesTransformation(CircuitTransformation):
     def create_replacement(self):
         """
         Create the replacement gates to add to the circuit.
-        Randomly select a single qubit gate from the gate pool.
+        Randomly select a single qubit gate from the gate pool and duplicate it to form an identity.
         """
-        # Choose a random gate type from the available options
-        selected_gate = random.choice(self.gate_pool)
+        try:
+            if not hasattr(self, 'gate_pool') or len(self.gate_pool) == 0:
+                raise ValueError("The gate pool is empty or not initialized.")
+            
+            # Choose a random gate type from the available options
+            selected_gate = random.choice(self.gate_pool)
 
-        # Select qubits based on the gate's requirements
-        if selected_gate.num_qubits == 1:
-            selected_qubit = [random.choice(range(self.num_qubits))]
-        elif selected_gate.num_qubits == 2:
-            selected_qubit = random.sample(range(self.num_qubits), 2)
-        
-        # Create two instances of the gate (to form an identity transformation)
-        self.replacement = 2*[(selected_gate, [self.circuit.qubits[q] for q in selected_qubit], [])]
+            # Select qubits based on the gate's requirements
+            if selected_gate.num_qubits == 1:
+                selected_qubit = [random.choice(range(self.num_qubits))]
+            elif selected_gate.num_qubits == 2:
+                selected_qubit = random.sample(range(self.num_qubits), 2)
+            else:
+                raise ValueError(f"Unexpected number of qubits for the gate: {selected_gate.num_qubits}")
+            
+            # Create two instances of the gate (to form an identity transformation)
+            self.replacement = 2*[(selected_gate, [self.circuit.qubits[q] for q in selected_qubit], [])]
+
+        except Exception as e:
+            raise TransformationError(f"Failed to create replacement gates: {e}")
 
     def apply_transformation(self):
         """Apply the identity gate transformation to the circuit."""
-        # Get the list of current operations in the circuit
-        operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
+        try:
+            # Get the list of current operations in the circuit
+            operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
 
-        # Choose a random position to insert the identity gate sequence
-        random_position = random.randint(0, len(operations))
+            # Choose a random position to insert the identity gate sequence
+            random_position = random.randint(0, len(operations))
 
-        # Insert the replacement gates at the chosen position
-        if not self.replacement:
-            raise TransformationError("No replacement gates found for the identity transformation.")
-        transformed_operations = operations[:random_position] + self.replacement + operations[random_position:]
+            # Insert the replacement gates at the chosen position
+            if not self.replacement:
+                raise TransformationError("No replacement gates found for the identity transformation.")
+            transformed_operations = operations[:random_position] + self.replacement + operations[random_position:]
 
-        # Create a new circuit with the transformed operations
-        transformed_qc = QuantumCircuit(self.num_qubits)
-        for instruction in transformed_operations:
-            inst, qargs, cargs = instruction
-            transformed_qc.append(inst, qargs, cargs)
+            # Create a new circuit with the transformed operations
+            transformed_qc = QuantumCircuit(self.num_qubits)
+            for instruction in transformed_operations:
+                inst, qargs, cargs = instruction
+                transformed_qc.append(inst, qargs, cargs)
 
-        # Return the new circuit graph representation
-        return QuantumCircuitGraph(transformed_qc)
+            # Return the new circuit graph representation
+            return QuantumCircuitGraph(transformed_qc)
+        
+        except Exception as e:
+            raise TransformationError(f"Failed to apply the transformation: {e}")
 
 
 class RemoveIdentityGatesTransformation(CircuitTransformation):
@@ -390,23 +402,27 @@ class SwapControlTargetTransformation(CircuitTransformation):
         In the first element of the pattern subgraph list, the pattern is a CNOT gate, while in the second element
         the pattern is Hadamard gates + CNOT.
         """
-        self.pattern_subgraph = []
+        try:
+            self.pattern_subgraph = []
 
-        # Define the pattern to match a CNOT gate
-        pattern_subcircuit = QuantumCircuit(2)
-        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+            # Define the pattern to match a CNOT gate
+            pattern_subcircuit = QuantumCircuit(2)
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
 
-        self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
+            self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
 
-        # Define the pattern to match Hadamard gates + CNOT
-        pattern_subcircuit = QuantumCircuit(2)
-        pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[0]])
-        pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[1]])
-        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
-        pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[0]])
-        pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[1]])
+            # Define the pattern to match Hadamard gates + CNOT
+            pattern_subcircuit = QuantumCircuit(2)
+            pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[0]])
+            pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[1]])
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+            pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[0]])
+            pattern_subcircuit.append(HGate(), [pattern_subcircuit.qubits[1]])
 
-        self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
+            self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False))
+
+        except Exception as e:
+            raise TransformationError(f"Failed to create pattern: {e}")
 
     def create_replacement(self):
         """
@@ -414,86 +430,94 @@ class SwapControlTargetTransformation(CircuitTransformation):
         Both the transformation and its reverse can be applied: the first element of the replacement list
         contains the Hadamard gates + CNOT, while the second element contains the CNOT gate.
         """
-        # Get the qubits on which the CNOT gate acts
-        if not self.matching_subgraph:
-            raise TransformationError("No matching subgraphs found for the control-target swap transformation.")
-        
-        # Retrieve the control and target qubits from the matching subgraph
-        control_qubit = None
-        target_qubit = None
+        try:
+            # Get the qubits on which the CNOT gate acts
+            if not self.matching_subgraph:
+                raise TransformationError("No matching subgraphs found for the control-target swap transformation.")
+            
+            # Retrieve the control and target qubits from the matching subgraph
+            control_qubit = None
+            target_qubit = None
 
-        iter_nodes = iter(self.matching_subgraph.keys())
-        # until both control and target qubits are found, iterate over the nodes in the matching subgraph
-        for node in iter_nodes:
-            if 'control' in node: # get control qubit and assign to target qubit for swap
-                target_qubit = int(node.split('_')[1]) # cx_{control_qubit}_control_{node_id}
-            elif 'target' in node: # get target qubit and assign to control qubit for swap
-                control_qubit = int(node.split('_')[1]) # cx_{target_qubit}_target_{node_id}
+            iter_nodes = iter(self.matching_subgraph.keys())
+            # until both control and target qubits are found, iterate over the nodes in the matching subgraph
+            for node in iter_nodes:
+                if 'control' in node: # get control qubit and assign to target qubit for swap
+                    target_qubit = int(node.split('_')[1]) # cx_{control_qubit}_control_{node_id}
+                elif 'target' in node: # get target qubit and assign to control qubit for swap
+                    control_qubit = int(node.split('_')[1]) # cx_{target_qubit}_target_{node_id}
 
-            if control_qubit is not None and target_qubit is not None:
-                break
+                if control_qubit is not None and target_qubit is not None:
+                    break
 
-        if control_qubit is None or target_qubit is None:
-            raise TransformationError("Could not find both control and target qubits in the subgraph.")
+            if control_qubit is None or target_qubit is None:
+                raise TransformationError("Could not find both control and target qubits in the subgraph.")
 
-        if len(self.matching_subgraph.keys()) == 2: # CNOT -> H, H, CNOT, H, H
-            replacement = []
+            if len(self.matching_subgraph.keys()) == 2: # CNOT -> H, H, CNOT, H, H
+                replacement = []
 
-            replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
-            replacement.append((HGate(), [self.circuit.qubits[target_qubit]], []))
-            replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
-            replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
-            replacement.append((HGate(), [self.circuit.qubits[target_qubit]], []))
+                replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
+                replacement.append((HGate(), [self.circuit.qubits[target_qubit]], []))
+                replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
+                replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
+                replacement.append((HGate(), [self.circuit.qubits[target_qubit]], []))
 
-        elif len(self.matching_subgraph.keys()) == 6: # H, H, CNOT, H, H -> CNOT
-            # Create replacement subgraph with CNOT gate
-            replacement = ((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
+            elif len(self.matching_subgraph.keys()) == 6: # H, H, CNOT, H, H -> CNOT
+                # Create replacement subgraph with CNOT gate
+                replacement = ((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
 
-        else:
-            raise TransformationError(f"Expected exactly two or six node in subgraph to be matched, but got {len(self.matching_subgraph.keys())}: {self.matching_subgraph.keys()}")
+            else:
+                raise TransformationError(f"Expected exactly two or six node in subgraph to be matched, but got {len(self.matching_subgraph.keys())}: {self.matching_subgraph.keys()}")
 
-        self.replacement = replacement
+            self.replacement = replacement
+
+        except Exception as e:
+            raise TransformationError(f"Failed to create replacement: {e}")
 
 
     def apply_transformation(self):
         """Apply the transformation by swapping the control and target qubits of a CNOT gate in the circuit."""
-        if not self.replacement:
-            raise TransformationError("No replacement gates found for the transformation.")
-    
-        # Retrieve indices of gates in the matching subgraph
-        matching_idxs = self.get_matching_indices()
-
-        # Get the list of current operations in the circuit
-        operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
-        replacement = self.replacement
-
-        # Check if matching_idxs contains exactly (CNOT)
-        if len(matching_idxs) == 1: # CNOT -> H, H, CNOT, H, H
-            idx = matching_idxs[0]
-            # Swap
-            transformed_operations = operations[:idx] + replacement + operations[idx+1:]
-
-        elif len(matching_idxs) == 5: # H, H, CNOT, H, H -> CNOT
-            idx_h1, idx_h2, idx_cnot, idx_h3, idx_h4 = matching_idxs
-            transformed_operations = []
-
-            for i, op in enumerate(operations):
-                if i == idx_cnot:
-                    transformed_operations.append(replacement)  # Substitute the CNOT with a CNOT with swapped control and target
-                elif i not in [idx_h1, idx_h2, idx_h3, idx_h4]:
-                    transformed_operations.append(op)  # Keep all elements not in the matching indices
+        try:
+            if not self.replacement:
+                raise TransformationError("No replacement gates found for the transformation.")
         
-        else:
-            raise TransformationError(f"Expected exactly one or five matching index for control-target swap, but got {len(matching_idxs)}: {matching_idxs}")
+            # Retrieve indices of gates in the matching subgraph
+            matching_idxs = self.get_matching_indices()
 
-        # Create a new circuit with the transformed operations
-        transformed_qc = QuantumCircuit(self.num_qubits)
-        for instruction in transformed_operations:
-            inst, qargs, cargs = instruction
-            transformed_qc.append(inst, qargs, cargs)
+            # Get the list of current operations in the circuit
+            operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
+            replacement = self.replacement
 
-        # Return the new circuit graph representation
-        return QuantumCircuitGraph(transformed_qc)
+            # Check if matching_idxs contains exactly (CNOT)
+            if len(matching_idxs) == 1: # CNOT -> H, H, CNOT, H, H
+                idx = matching_idxs[0]
+                # Swap
+                transformed_operations = operations[:idx] + replacement + operations[idx+1:]
+
+            elif len(matching_idxs) == 5: # H, H, CNOT, H, H -> CNOT
+                idx_h1, idx_h2, idx_cnot, idx_h3, idx_h4 = matching_idxs
+                transformed_operations = []
+
+                for i, op in enumerate(operations):
+                    if i == idx_cnot:
+                        transformed_operations.append(replacement)  # Substitute the CNOT with a CNOT with swapped control and target
+                    elif i not in [idx_h1, idx_h2, idx_h3, idx_h4]:
+                        transformed_operations.append(op)  # Keep all elements not in the matching indices
+            
+            else:
+                raise TransformationError(f"Expected exactly one or five matching index for control-target swap, but got {len(matching_idxs)}: {matching_idxs}")
+
+            # Create a new circuit with the transformed operations
+            transformed_qc = QuantumCircuit(self.num_qubits)
+            for instruction in transformed_operations:
+                inst, qargs, cargs = instruction
+                transformed_qc.append(inst, qargs, cargs)
+
+            # Return the new circuit graph representation
+            return QuantumCircuitGraph(transformed_qc)
+        
+        except Exception as e:
+            raise TransformationError(f"Failed to apply transformation: {e}")
 
 
 
