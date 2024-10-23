@@ -846,6 +846,130 @@ class CNOTDecompositionTransformation(CircuitTransformation):
             raise TransformationError(f"Failed to apply transformation: {e}")
 
 
+class ChangeOfBasisTransformation(CircuitTransformation):
+    """
+    Transformation to implement a change of basis on a qubit in the circuit, by applying the equivalence
+    HZH = X or HXH = Z. Any of the subpatterns derived from this equivalence can be used for the transformation.
+    """
+    def __init__(self, qcg):
+        super().__init__(qcg)
+
+        self.transformation_rules = {
+            'H-Z-H': 'X',
+            'H-X-H': 'Z',
+            'X-H-Z': 'H',
+            'Z-H-X': 'H',
+            'H-Z': 'X-H',
+            'Z-H': 'H-X',
+            'X-H': 'H-Z',
+            'H-X': 'Z-H',
+            'X': 'H-Z-H',
+            'Z': 'H-X-H',
+            'H': ['X-H-Z','Z-H-X']
+        }
+
+    def create_pattern(self):
+        """Generate all possible patterns based on transformation rules."""
+        self.pattern_subgraph = []
+        
+        for pattern in self.transformation_rules.keys():
+            subcircuit = QuantumCircuit(1)
+            
+            gates = pattern.split('-')
+            for gate in gates:
+                if gate == 'H':
+                    subcircuit.append(HGate(), [subcircuit.qubits[0]])
+                elif gate == 'X':
+                    subcircuit.append(XGate(), [subcircuit.qubits[0]])
+                elif gate == 'Z':
+                    subcircuit.append(ZGate(), [subcircuit.qubits[0]])
+
+            # Build the graph from the pattern subcircuit and append to subgraph list
+            self.pattern_subgraph.append((pattern.lower(), build_graph_from_circuit(subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
+
+    def create_replacement(self):
+        """Create the replacement subgraph using the transformation rules."""
+        try:
+            if not self.matching_subgraph:
+                raise TransformationError("No matching subgraphs found for the transformation.")
+            
+            if not self.matching_key:
+                raise TransformationError("No matching key found for the transformation.")
+
+            qubit = int(list(self.matching_subgraph.keys())[0].split('_')[1])
+            replacement_key = self.transformation_rules.get(self.matching_key.upper())
+
+            if replacement_key:
+                replacement = []
+                if isinstance(replacement_key, list):
+                    replacement_key = random.choice(replacement_key)
+
+                replacement_gates = replacement_key.split('-')
+                for gate in replacement_gates:
+                    if gate == 'X':
+                        replacement.append((XGate(), [self.circuit.qubits[qubit]], []))
+                    elif gate == 'H':
+                        replacement.append((HGate(), [self.circuit.qubits[qubit]], []))
+                    elif gate == 'Z':
+                        replacement.append((ZGate(), [self.circuit.qubits[qubit]], []))
+                        
+                
+                print(f"Replacement: {replacement}")
+                self.replacement = replacement
+            else:
+                raise TransformationError(f"Unexpected matching key for change of basis: {self.matching_key}")
+
+        except Exception as e:
+            raise TransformationError(f"Failed to create replacement: {e}")
+        
+    def apply_transformation(self):
+        """Apply the transformation by changing the basis of a qubit in the circuit."""
+        try:
+            if not self.replacement:
+                raise TransformationError("No replacement gates found for the transformation.")
+        
+            # Retrieve indices of gates in the matching subgraph
+            matching_idxs = self.get_matching_indices()
+            print(f"Matching indices: {matching_idxs}")
+            print(f"Number of matching indices: {len(matching_idxs)}")
+
+            # Get the list of current operations in the circuit
+            operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
+            replacement = self.replacement
+
+            if len(matching_idxs) == 1:
+                idx = matching_idxs[0]
+                transformed_operations = operations[:idx] + replacement + operations[idx+1:]
+
+            elif len(matching_idxs) == 2:
+                idx1, idx2 = matching_idxs
+                transformed_operations = operations.copy()
+                transformed_operations[idx1], transformed_operations[idx2] = replacement[0], replacement[1]
+
+            elif len(matching_idxs) == 3:
+                idx1, idx2, idx3 = matching_idxs
+                transformed_operations = []
+                for i, op in enumerate(operations):
+                    if i not in [idx1, idx2, idx3]:
+                        transformed_operations.append(op)
+                    if i == idx2:
+                        transformed_operations.extend(replacement)
+            else:
+                raise TransformationError(f"Expected 1, 2 or 3 matching indices for change of basis, but got {len(matching_idxs)}: {matching_idxs}")
+
+            print(f"Transformed operations: {transformed_operations}")
+            # Create a new circuit with the transformed operations
+            transformed_qc = QuantumCircuit(self.num_qubits)
+            for instruction in transformed_operations:
+                inst, qargs, cargs = instruction
+                transformed_qc.append(inst, qargs, cargs)
+
+            # Return the new circuit graph representation
+            return QuantumCircuitGraph(transformed_qc)
+        
+        except Exception as e:
+            raise TransformationError(f"Failed to apply transformation: {e}")
+
 #     def apply(self):
 #         # randomly select the gates to add
 #         selected_gates = random.choice([('X', 'X'), ('H', 'H'), ('Z', 'Z'), ('CNOT', 'CNOT')])
