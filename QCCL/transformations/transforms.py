@@ -562,7 +562,7 @@ class SwapControlTargetTransformation(CircuitTransformation):
                 replacement.append((HGate(), [self.circuit.qubits[control_qubit]], []))
 
             else:
-                raise TransformationError(f"Expected exactly two or six node in subgraph to be matched, but got {len(self.matching_subgraph.keys())}: {self.matching_subgraph.keys()}")
+                raise TransformationError(f"Unexpected matching key for control-target swap: {self.matching_key}")
 
             self.replacement = replacement
 
@@ -646,6 +646,204 @@ class SwapControlTargetTransformation(CircuitTransformation):
             raise TransformationError(f"Failed to apply transformation: {e}")
 
 
+class CNOTDecompositionTransformation(CircuitTransformation):
+    """
+    Transformation to implement the equivalence that expresses a multi-controlled CNOT gate as a sequence 
+    of CNOT gates using an ancilla qubit.
+    """
+
+    def __init__(self, qcg):
+        super().__init__(qcg)
+
+    def create_pattern(self):
+        """
+        Create the pattern to match a single CNOT gate or a sequence of 4 CNOT gates, as showed below.
+                                 
+        ──■─────────■───────                ───────■─────────■──
+        ┌─┴─┐     ┌─┴─┐                          ┌─┴─┐     ┌─┴─┐
+        ┤ X ├──■──┤ X ├──■──        or      ──■──┤ X ├──■──┤ X ├
+        └───┘┌─┴─┐└───┘┌─┴─┐                ┌─┴─┐└───┘┌─┴─┐└───┘
+        ─────┤ X ├─────┤ X ├                ┤ X ├─────┤ X ├─────
+             └───┘     └───┘                └───┘     └───┘ 
+        """
+        try:
+            self.pattern_subgraph = []
+
+            # Define the pattern to match a single CNOT gate
+            pattern_subcircuit = QuantumCircuit(2)
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+
+            self.pattern_subgraph.append(('cx', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
+
+            # Define the pattern to match a sequence of 4 CNOT gates
+            # ──■─────────■───────
+            # ┌─┴─┐     ┌─┴─┐
+            # ┤ X ├──■──┤ X ├──■──
+            # └───┘┌─┴─┐└───┘┌─┴─┐
+            # ─────┤ X ├─────┤ X ├
+            #      └───┘     └───┘
+            pattern_subcircuit = QuantumCircuit(3)
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[1], pattern_subcircuit.qubits[2]])
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[1], pattern_subcircuit.qubits[2]])
+
+            self.pattern_subgraph.append(('t-c-t-c', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
+
+            # ───────■─────────■──
+            #      ┌─┴─┐     ┌─┴─┐
+            # ──■──┤ X ├──■──┤ X ├
+            # ┌─┴─┐└───┘┌─┴─┐└───┘
+            # ┤ X ├─────┤ X ├─────
+            # └───┘     └───┘
+            pattern_subcircuit = QuantumCircuit(3)
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[1], pattern_subcircuit.qubits[2]])
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[1], pattern_subcircuit.qubits[2]])
+            pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+
+            self.pattern_subgraph.append(('c-t-c-t', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, construct_by_layer=False, data=False)))
+
+        except Exception as e:
+            raise TransformationError(f"Failed to create pattern: {e}")
+        
+    def create_replacement(self):
+        """
+        Create the replacement subgraph to decompose a CNOT gate into a sequence of 4 CNOT gates (or vice versa).
+        """
+        try:
+            # Get the qubits on which the CNOT gate acts
+            if not self.matching_subgraph:
+                raise TransformationError("No matching subgraphs found for the control-target swap transformation.")
+            
+            if not self.matching_key:
+                raise TransformationError("No matching key found for the control-target swap transformation.")
+            
+            if self.matching_key == 'cx':
+                # Retrieve the control and target qubits from the matching subgraph
+                control_qubit = None
+                target_qubit = None
+
+                iter_nodes = iter(self.matching_subgraph.keys())
+                # until both control and target qubits are found, iterate over the nodes in the matching subgraph
+                for node in iter_nodes:
+                    if 'control' in node: # get control qubit and assign to target qubit for swap
+                        control_qubit = int(node.split('_')[1]) # cx_{control_qubit}_control_{node_id}
+                    elif 'target' in node: # get target qubit and assign to control qubit for swap
+                        target_qubit = int(node.split('_')[1]) # cx_{target_qubit}_target_{node_id}
+
+                    if control_qubit is not None and target_qubit is not None:
+                        break
+
+                if control_qubit is None or target_qubit is None:
+                    raise TransformationError("Could not find both control and target qubits in the subgraph.")
+                
+                # Choose an ancilla qubit (randomly) that is not the control or target qubit
+                ancilla_qubit = random.choice([q for q in range(self.num_qubits) if q not in [control_qubit, target_qubit]])
+
+                replacement = []
+                # Choose randomly the order of gates in the decomposition
+                if random.choice([True, False]):
+                    replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[ancilla_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[ancilla_qubit], self.circuit.qubits[target_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[ancilla_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[ancilla_qubit], self.circuit.qubits[target_qubit]], []))
+                else:
+                    replacement.append((CXGate(), [self.circuit.qubits[ancilla_qubit], self.circuit.qubits[target_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[ancilla_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[ancilla_qubit], self.circuit.qubits[target_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[ancilla_qubit]], []))
+
+
+            elif self.matching_key == 't-c-t-c':
+                # Get the qubits on which the replacing CNOT gates act:
+                # - control qubit is the qubit of the first node in the matching subgraph
+                # - target qubit is the qubit of the last node in the matching subgraph
+                control_qubit = int(list(self.matching_subgraph.keys())[0].split('_')[1])
+                ancilla_qubit = int(list(self.matching_subgraph.keys())[1].split('_')[1])
+                target_qubit = int(list(self.matching_subgraph.keys())[-1].split('_')[1])
+
+                replacement = []
+                # Choose randomly if substitute with a single CNOT or with the other sequence of CNOTs
+                if random.choice([True, False]):
+                    replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
+                else:
+                    replacement.append((CXGate(), [self.circuit.qubits[ancilla_qubit], self.circuit.qubits[target_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[ancilla_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[ancilla_qubit], self.circuit.qubits[target_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[ancilla_qubit]], []))
+
+            elif self.matching_key == 'c-t-c-t':
+                # Get the qubits on which the replacing CNOT gates act:
+                # - target qubit is the qubit of the second node in the matching subgraph
+                # - control qubit is the qubit of the second-last node in the matching subgraph
+                target_qubit = int(list(self.matching_subgraph.keys())[1].split('_')[1])
+                ancilla_qubit = int(list(self.matching_subgraph.keys())[0].split('_')[1])
+                control_qubit = int(list(self.matching_subgraph.keys())[-2].split('_')[1])
+
+                replacement = []
+                # Choose randomly if substitute with a single CNOT or with the other sequence of CNOTs
+                if random.choice([True, False]):
+                    replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
+                else:
+                    replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[ancilla_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[ancilla_qubit], self.circuit.qubits[target_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[ancilla_qubit]], []))
+                    replacement.append((CXGate(), [self.circuit.qubits[ancilla_qubit], self.circuit.qubits[target_qubit]], []))
+
+            else:
+                raise TransformationError(f"Unexpected matching key for control-target swap: {self.matching_key}")
+
+            self.replacement = replacement
+
+        except Exception as e:
+            raise TransformationError(f"Failed to create replacement: {e}")
+        
+
+    def apply_transformation(self):
+        """Apply the transformation by decomposing a CNOT gate into a sequence of 4 CNOT gates (or vice versa)."""
+        try:
+            if not self.replacement:
+                raise TransformationError("No replacement gates found for the transformation.")
+        
+            # Retrieve indices of gates in the matching subgraph
+            matching_idxs = self.get_matching_indices()
+
+            # Get the list of current operations in the circuit
+            operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
+            replacement = self.replacement
+
+            # Check if matching_idxs contains exactly one or four elements
+            if self.matching_key == 'cx':
+                idx = matching_idxs[0]
+                # Swap
+                transformed_operations = operations[:idx] + replacement + operations[idx+1:]
+
+            elif self.matching_key in ['t-c-t-c', 'c-t-c-t']:
+                idx1, idx2, idx3, idx4 = matching_idxs
+                transformed_operations = []
+
+                for i, op in enumerate(operations):
+                    if i not in [idx1, idx2, idx3, idx4]:
+                        transformed_operations.append(op)
+                    if i == idx2+1:
+                        transformed_operations.extend(replacement)
+
+            else:
+                raise TransformationError(f"Unexpected matching key for CNOT decomposition: {self.matching_key}")
+
+            print(f"Transformed operations: {transformed_operations}")
+            # Create a new circuit with the transformed operations
+            transformed_qc = QuantumCircuit(self.num_qubits)
+            for instruction in transformed_operations:
+                inst, qargs, cargs = instruction
+                transformed_qc.append(inst, qargs, cargs)
+
+            # Return the new circuit graph representation
+            return QuantumCircuitGraph(transformed_qc)
+        
+        except Exception as e:
+            raise TransformationError(f"Failed to apply transformation: {e}")
 
 
 #     def apply(self):
