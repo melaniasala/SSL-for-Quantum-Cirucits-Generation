@@ -3,10 +3,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 import torch
 import networkx as nx
-import qiskit.dagcircuit.dagnode as dagnode
-from qiskit.converters import circuit_to_dag
-from qiskit.transpiler.passes import RemoveBarriers
-from QuantumCircuitGraph import *
+from qiskit.circuit.gate import Gate
 
 
 
@@ -21,10 +18,6 @@ def encode_sequence(graph, sequence_length=None, end_index=None, use_padding=Tru
     :param padding_value: Value to use for padding
     :return: Tensor representation of the sequence
     """
-    # Ensure graph is a QuantumCircuitGraph object
-    if not isinstance(graph, QuantumCircuitGraph.QuantumCircuitGraph):
-        raise ValueError("graph parameter must be a QuantumCircuitGraph object")
-
     total_nodes = graph.node_feature_matrix.shape[0]
     if sequence_length is None:
         sequence_length = total_nodes
@@ -58,10 +51,6 @@ def decode_sequence(encoded_sequence, graph):
     :param graph: QuantumCircuitGraph object
     :return: List of dictionaries containing information (gate type, control/target) about each node in the sequence
     """
-    # Ensure graph is a QuantumCircuitGraph object
-    if not isinstance(graph, QuantumCircuitGraph.QuantumCircuitGraph):
-        raise ValueError("graph parameter must be a QuantumCircuitGraph object")
-
     # Ensure encoded_sequence is a PyTorch tensor
     if not isinstance(encoded_sequence, torch.Tensor):
         raise ValueError("encoded_sequence parameter must be a PyTorch tensor")
@@ -128,142 +117,187 @@ def extract_circuit_gates(circuit):
 
 
 
-def build_graph_from_circuit(circuit, gate_type_map, include_params=False, include_id_gates=False, diff_cx=False):
+def build_graph_from_circuit(circuit, gate_type_map, include_params=False, include_id_gates=False, diff_cx=False, data=True):
     """
     Constructs a NetworkX graph representation from the QuantumCircuit.
 
         :param circuit: QuantumCircuit object
+        :param gate_type_map: Dictionary mapping gate types to integers
+        :param include_params: Whether to include gate parameters in the node feature vector
+        :param include_id_gates: Whether to include identity gates in the graph
+        :param diff_cx: Whether to differentiate between control and target qubits for CNOT gates
+        :param data: Whether to return additional data (last nodes, node positions, node list)
         :return: Tuple containing the graph, last nodes, node positions, and node list.
     """
     # Create an empty graph
     graph = nx.DiGraph()
 
-    # Extract DAGCircuit from the QuantumCircuit, remove barriers, and get the layers
-    remove_barriers = RemoveBarriers()
-    
-    dag = circuit_to_dag(remove_barriers(circuit))
-    layers = list(dag.multigraph_layers())[1:-1] # exclude the first layer (input layer) and the last layer (output layer)
-
     last_nodes = {} # dictionary to store the last node for each qubit
-    node_positions = {} # dictionary to store the position of each node in the graph (for visualization)
     node_list = [] # list to store the order of the nodes in the graph
 
-    # Iterate over the layers and gates in the circuit
-    for l, layer in enumerate(layers):
-        gates_in_layer = []
-        for gate in layer:
-            # if gate is a DAGOpNode, process it. Else move to the next gate
-            if type(gate) == dagnode.DAGOpNode:
-                gates_in_layer.extend(process_gate(graph, gate, l, last_nodes, node_positions, gate_type_map, include_params, include_id_gates, diff_cx))
-            else:
-                continue
+    for i, gate in enumerate(circuit.data):
+    # Skip non-gate operations (e.g., barriers, measurements)
+        if not isinstance(gate.operation, Gate):
+            continue
+        
+        # Process the gate if it is a valid quantum gate
+        gate_data = process_gate(gate, gate_type_map=gate_type_map, node_id=i, include_params=include_params, include_id_gates=include_id_gates, diff_cx=diff_cx)
+        node_list.extend(insert_node(graph, gate_data, last_nodes=last_nodes))
 
-        # Order gates in the layer according to the qubit index
-        gates_in_layer.sort(key=lambda x: graph.nodes[x]['qubit'])
-
-        # Add the ordered list of gates in the layer to the node_list
-        node_list.extend(gates_in_layer)
-
-    # N.B. If you want to get the nodes in BFS order, you need to call
-    # nx.bfs_nodes(graph, start_node) where start_node is the node from which you want to start the traversal
-
-    # Notice that QuantumCircuitGraph.nodes will retrieve the list of nodes identifiers in the order given by the
-    # layers and qubit index, while DiGraph.nodes will retrieve a dictionary with the nodes as keys and their
-    # attributes as values. The order of the nodes in the dictionary should be the same as the order in which they
-    # were added to the graph (which is not the same order of QuantumCircuitGraph.nodes, due to CNOT components 
-    # being added at the same time regardless o the qubit they act on)
-
-    return graph, node_list, last_nodes, node_positions 
+    if data:
+        return graph, node_list, last_nodes
+    else:
+        return graph
 
 
-def process_gate(graph, gate, layer_idx, last_nodes, node_positions, gate_type_map, include_params=False, include_id_gates=False, diff_cx=False):
-        """
-        Processes an individual gate and updates the graph accordingly.
+def process_gate(gate, gate_type_map, node_id=None, include_params=False, include_id_gates=False, diff_cx=False):
+    """
+    Process a quantum gate and return data necessary to add a node to the graph.
 
-        :param graph: The current graph
-        :param gate: The gate being processed (DAGNode object)
-        :param layer_idx: Current layer index
-        :param last_nodes: Dictionary of last nodes for each qubit
-        :param node_positions: Dictionary of node positions
-        :return: List of node IDs created for this gate
-        """
-        gate_as_nodes = []
+    :param gate: Quantum gate
+    :param gate_type_map: Dictionary mapping gate types to integers
+    :param node_id: Unique identifier for the node
+    :param include_params: Whether to include gate parameters in the node feature vector
+    :param include_id_gates: Whether to include identity gates in the graph
+    :param diff_cx: Whether to differentiate between control and target qubits for CNOT gates
 
-        if gate.name == 'cx':
+    :return: Tuple containing the node ID, qubit, and node data
+    """
+    if gate.name == 'cx':
+        try:
             control_qubit = gate.qargs[0]._index
             target_qubit = gate.qargs[1]._index
+        except AttributeError:
+            control_qubit = gate.qubits[0]._index
+            target_qubit = gate.qubits[1]._index
 
-            # Create unique node_ids for the control and target qubits
+        # Create unique node_ids for the control and target qubits
+        if node_id is not None:
+            node_id_control = f"{gate.name}_{control_qubit}_control_{node_id}"
+            node_id_target = f"{gate.name}_{target_qubit}_target_{node_id}"
+        else:
             node_id_control = f"{gate.name}_{control_qubit}_control_{gate._node_id}"
             node_id_target = f"{gate.name}_{target_qubit}_target_{gate._node_id}"
 
-            # Add nodes to the graph
-            graph.add_node(node_id_control, 
-                           type=gate.name, 
-                           qubit=control_qubit, 
-                           params=gate.op.params, 
-                           ctrl_trgt='ctrl',
-                           feature_vector= build_node_features_vector(gate.name,
-                                                                      node_id_control, 
-                                                                      gate_type_map,
-                                                                      include_params=include_params,
-                                                                      include_identity_gates=include_id_gates,
-                                                                        differentiate_cx=diff_cx,
-                                                                      params=gate.op.params))
-            graph.add_node(node_id_target, 
-                           type=gate.name, 
-                           qubit=target_qubit, 
-                           params=gate.op.params, 
-                           ctrl_trgt='trgt',
-                           feature_vector= build_node_features_vector(gate.name,
-                                                                   node_id_target, 
-                                                                   gate_type_map,
-                                                                   include_params=include_params,
-                                                                     include_identity_gates=include_id_gates,
-                                                                     differentiate_cx=diff_cx,
-                                                                   params=gate.op.params))
-
-            # Add two edges (each pointing in opposite direction) between control and target
-            graph.add_edge(node_id_control, node_id_target, type='cx')
-            graph.add_edge(node_id_target, node_id_control, type='cx')
-
-            # Connect control and target nodes to the last nodes for each qubit
-            for qubit, node_id in zip([control_qubit, target_qubit], [node_id_control, node_id_target]):
-                if qubit in last_nodes:
-                    graph.add_edge(last_nodes[qubit], node_id, type='qubit', create_using=nx.DiGraph()) # edge going from last node to current node
-                last_nodes[qubit] = node_id
-
-                node_positions[node_id] = (layer_idx, -0.5*qubit) # custom position for each node
-                gate_as_nodes.append(node_id)
-
-        else:
+    else:
+        try:
             qubit = gate.qargs[0]._index
+        except AttributeError:
+            qubit = gate.qubits[0]._index
 
-            # Create a unique node_id for the gate
+        # Create a unique node_id for the gate
+        if node_id is not None:
+            node_id = f"{gate.name}_{qubit}_{node_id}"
+        else:
             node_id = f"{gate.name}_{qubit}_{gate._node_id}"
 
-            # Add the node to the graph
-            graph.add_node(node_id, 
-                           type=gate.name, 
-                           qubit=qubit, 
-                           params=gate.op.params,
-                           feature_vector= build_node_features_vector(gate.name, 
-                                                                   node_id, 
-                                                                   gate_type_map,
-                                                                   include_params=include_params,
-                                                                     include_identity_gates=include_id_gates,
-                                                                     differentiate_cx=diff_cx,
-                                                                   params=gate.op.params))
+    # Get params
+    try:
+        params = gate.op.params
+    except AttributeError:
+        params = gate.params
 
-            # Connect the node to the last node for the qubit
+    # Get gate type
+    gate_type = gate.name
+
+    # Get feature vector(s) and return node(s) data
+    if gate_type == 'cx':
+        feature_vector_control = build_node_features_vector(gate_type, node_id_control, gate_type_map, include_params=include_params, params=params, include_identity_gates=include_id_gates, differentiate_cx=diff_cx)
+        feature_vector_target = build_node_features_vector(gate_type, node_id_target, gate_type_map, include_params=include_params, params=params, include_identity_gates=include_id_gates, differentiate_cx=diff_cx)
+
+        return [(node_id_control, {'qubit': control_qubit, 'type': gate_type, 'params': params, 'feature_vector': feature_vector_control}),
+                (node_id_target, {'qubit': target_qubit, 'type': gate_type, 'params': params, 'feature_vector': feature_vector_target})]
+    
+    else:
+        feature_vector = build_node_features_vector(gate_type, node_id, gate_type_map, include_params=include_params, params=params, include_identity_gates=include_id_gates, differentiate_cx=diff_cx)
+
+        return (node_id, {'qubit': qubit, 'type': gate_type, 'params': params, 'feature_vector': feature_vector})
+
+
+def insert_node(graph, node_data, pred_succ=None, last_nodes=None):
+    """
+    Insert a node into the graph and update the last node and node position dictionaries.
+
+    :param graph: NetworkX graph
+    :param node_data: Data for the node to insert
+    :param pred_succ: Predecessor and successor nodes for the new node. If None, last_nodes will be used.
+    :param last_nodes: Dictionary containing the last node for each qubit
+    :param node_positions: Dictionary containing the position of each node in the graph
+    """
+    gate_as_nodes = []
+
+    # If the node data is a list, this means it is a CNOT gate: add two nodes (control and target)
+    if isinstance(node_data, list):
+        for node, ctrl_trgt in zip(node_data, ['control', 'target']):
+            node_id, data = node
+            graph.add_node(node_id, ctrl_trgt=ctrl_trgt, **data)
+
+        control_id, target_id = [node_data[0][0], node_data[1][0]]
+        control_qubit, target_qubit = [node_data[0][1]['qubit'], node_data[1][1]['qubit']]
+
+        # If predecessor and successor nodes are provided, connect the control and target nodes to them
+        if pred_succ:
+            pred_ctrl, succ_ctrl = pred_succ[0]
+            pred_trgt, succ_trgt = pred_succ[1]
+
+            # check if qubit of predecessor and successor nodes are the same as the control and target qubits
+            if not int(pred_ctrl.split('_')[1]) == int(succ_ctrl.split('_')[1]) == control_qubit:
+                raise ValueError("Control qubit does not match predecessor or successor nodes")
+            if not int(pred_trgt.split('_')[1]) == int(succ_trgt.split('_')[1]) == target_qubit:
+                raise ValueError("Target qubit does not match predecessor or successor nodes")
+            
+            # connect control and target nodes to their predecessor and successor nodes
+            graph.add_edge(pred_ctrl, control_id, type='qubit', create_using=nx.DiGraph()) # edge going from predecessor node to control node
+            graph.add_edge(control_id, succ_ctrl, type='qubit', create_using=nx.DiGraph()) # edge going from control node to successor node
+            graph.add_edge(pred_trgt, target_id, type='qubit', create_using=nx.DiGraph()) # edge going from predecessor node to target node
+            graph.add_edge(target_id, succ_trgt, type='qubit', create_using=nx.DiGraph()) # edge going from target node to successor node
+
+            # remove edges between predecessor and successor nodes
+            graph.remove_edge(pred_ctrl, succ_ctrl)
+            graph.remove_edge(pred_trgt, succ_trgt)
+        
+        # If no predecessor and successor nodes are provided, connect the control and target nodes to the last nodes
+        else:
+            for qubit, node_id in zip([control_qubit, target_qubit], [control_id, target_id]):
+                if qubit in last_nodes:
+                    graph.add_edge(last_nodes[qubit], node_id, type='qubit', create_using=nx.DiGraph())
+                last_nodes[qubit] = node_id
+
+        # Add edges between control and target nodes (bidirectional)
+        graph.add_edge(control_id, target_id, type='cx', create_using=nx.DiGraph())
+        graph.add_edge(target_id, control_id, type='cx', create_using=nx.DiGraph())
+
+        gate_as_nodes.extend([control_id, target_id])
+
+    # If the node data is a dictionary, this means it is a single-qubit gate   
+    else:
+        node_id, node_data = node_data  
+        graph.add_node(node_id, ctrl_trgt=None, **node_data)
+        qubit = node_data['qubit']
+
+        # If predecessor and successor nodes are provided, connect the node to them
+        if pred_succ:
+            # First check if the qubit of the predecessor and successor nodes is the same as the current node
+            pred_node, succ_node = pred_succ
+            if not int(pred_node.split('_')[1]) == int(succ_node.split('_')[1]) == qubit:
+                raise ValueError("Qubit does not match predecessor or successor nodes")
+            
+            # Connect the node to its predecessor and successor nodes
+            graph.add_edge(pred_node, node_id, type='qubit', create_using=nx.DiGraph()) # edge going from predecessor node to current node
+            graph.add_edge(node_id, succ_node, type='qubit', create_using=nx.DiGraph()) # edge going from current node to successor node
+
+            # Remove edge between predecessor and successor nodes
+            graph.remove_edge(pred_node, succ_node)
+
+        # If no predecessor and successor nodes are provided, connect the node to the last node
+        else:
             if qubit in last_nodes:
                 graph.add_edge(last_nodes[qubit], node_id, type='qubit', create_using=nx.DiGraph())
             last_nodes[qubit] = node_id
 
-            node_positions[node_id] = (layer_idx, -0.5*qubit) # custom position for the node
-            gate_as_nodes.append(node_id)
+        gate_as_nodes.append(node_id)
 
-        return gate_as_nodes
+    return gate_as_nodes
 
 
 def build_node_features_vector(gate_type, node_id, gate_type_map, include_params=False, params=None, include_identity_gates=False, differentiate_cx=False):
@@ -299,67 +333,6 @@ def build_node_features_vector(gate_type, node_id, gate_type_map, include_params
 
         return np.array(feature_vector)
 
-
-# def build_pyg_graph_from_circuit(circuit, include_params=False):
-#     """
-#     Build a PyG graph representation of a quantum circuit.
-#     To initialize a PyG Data object, we need to provide node features and edge index as tensors.
-#     :param circuit: quantum circuit
-#     :return: PyG Data object representing the circuit
-#     """
-#     node_features = []
-#     edge_index = []
-#     last_nodes = {}
-
-#     # Extract circuit gates
-#     circuit_gates = get_circuit_gates(circuit)
-
-#     current_node_idx = 0
-
-#     for i, gate in enumerate(circuit_gates['gates']):
-#         gate_type = gate['gate_type']
-        
-#         if gate_type == 'cx':
-#             control_qubit = gate['qubits'][0]
-#             target_qubit = gate['qubits'][1]
-            
-#             control_node_idx = current_node_idx
-#             target_node_idx = current_node_idx + 1
-
-#             # Add nodes with their respective types to node feature matrix
-#             node_features.append(create_node_feature(gate_type, ctrl_trgt= 'control', include_params= include_params, params= gate['params']))
-#             node_features.append(create_node_feature(gate_type, ctrl_trgt= 'target', include_params= include_params, params= gate['params']))
-#             current_node_idx += 2
-
-#             # Add an edge between control and target
-#             edge_index.append([control_node_idx, target_node_idx])
-
-#             # Connect control and target nodes to the last nodes for each qubit
-#             for qubit, node_idx in zip([control_qubit, target_qubit], [control_node_idx, target_node_idx]):
-#                 if qubit in last_nodes:
-#                     edge_index.append([last_nodes[qubit], node_idx])
-#                 last_nodes[qubit] = node_idx
-
-#         else:
-#             node_idx = current_node_idx
-#             current_node_idx += 1
-
-#             # Add a node for the gate with its type and parameters as features
-#             node_features.append(create_node_feature(gate_type, include_params= include_params, params= gate['params']))
-            
-#             for qubit in gate['qubits']:
-#                 if qubit in last_nodes:
-#                     edge_index.append([last_nodes[qubit], node_idx])
-#                 last_nodes[qubit] = node_idx
-
-#     # Convert node features and edge index to tensors
-#     node_features = torch.tensor(node_features, dtype=torch.float)
-#     edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous() 
-
-#     # Create PyG Data object
-#     data = tg.data.Data(x=node_features, edge_index=edge_index)
-
-#     return data
 
 
 def nx_graph_to_sequence(graph, random_start=True):
@@ -408,10 +381,6 @@ def draw_ordering(quantum_circuit_graph, node_ids_ordered):
     :param quantum_circuit_graph: QuantumCircuitGraph object
     :param node_ids_ordered: List of node IDs in the order in which they should be drawn
     """
-    # Ensure quantum_circuit_graph is a QuantumCircuitGraph object
-    if not isinstance(quantum_circuit_graph, QuantumCircuitGraph):
-        raise ValueError("quantum_circuit_graph parameter must be a QuantumCircuitGraph object")
-
     # In ordering label we will have the index of the node in the ordered list
     ordering_labels = {node_id:(node_ids_ordered.index(node_id)+1) for node_id in quantum_circuit_graph.graph.nodes}
 
@@ -429,7 +398,7 @@ def draw_circuit_and_graph(circuit_graph_tuple, axs=None):
     quantum_circuit, graph = circuit_graph_tuple
     
     if axs is None:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 7))
+        _, axes = plt.subplots(1, 2, figsize=(14, 7))
     else:
         axes = axs
 
@@ -441,8 +410,8 @@ def draw_circuit_and_graph(circuit_graph_tuple, axs=None):
             'x': 'X',
             'y': 'Y',
             'z': 'Z',
-            'ctrl': ' ',
-            'trgt': '+',
+            'control': ' ',
+            'target': '+',
             'id': 'I',
             't': 'T',
         }
