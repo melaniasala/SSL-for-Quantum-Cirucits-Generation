@@ -8,7 +8,8 @@ from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from qiskit.circuit.library.standard_gates import IGate
 from qiskit.circuit.barrier import Barrier
 from qiskit.transpiler.passes import RemoveBarriers
-from data_preprocessing import encode_sequence, build_graph_from_circuit, draw_circuit_and_graph, build_node_features_vector
+import qiskit.dagcircuit.dagnode as dagnode
+from .data_preprocessing import encode_sequence, build_graph_from_circuit, draw_circuit_and_graph, build_node_features_vector, process_gate, insert_node
 
 
 class QuantumCircuitGraph:
@@ -20,7 +21,8 @@ class QuantumCircuitGraph:
     GATE_TYPE_MAP = {}
     include_params = False
     include_identity_gates = False
-    differentiate_cx = False
+    differentiate_cx = True
+    node_order = None # None if no specific order is imposed, 'qc' for quantum circuit order (by layer), 'bfs' for BFS order
 
     @classmethod
     def set_gate_type_map(cls, gate_type_map):
@@ -36,8 +38,8 @@ class QuantumCircuitGraph:
 
     @classmethod
     def set_differentiate_cx(cls, differentiate_cx):
-        cls.differentiate_cx = differentiate_cx
 
+        cls.differentiate_cx = differentiate_cx
 
 
     def __init__(self, circuit=None):
@@ -115,7 +117,7 @@ class QuantumCircuitGraph:
         """
         if self.include_identity_gates:
             circuit = self.insert_identity_gates(circuit)
-        self.graph, self.node_ids, self.last_node_per_qubit, self.node_positions = build_graph_from_circuit(circuit, self.GATE_TYPE_MAP, self.include_params, self.include_identity_gates, self.differentiate_cx)
+        self.graph, self.node_ids, self.last_node_per_qubit = build_graph_from_circuit(circuit, self.GATE_TYPE_MAP, self.include_params, self.include_identity_gates, self.differentiate_cx)
         self.build_mapping()
         self.build_node_feature_matrix()
         self.build_adjacency_matrix()
@@ -224,6 +226,44 @@ class QuantumCircuitGraph:
         raise ValueError('Invalid order selected. Choose between "qc" and "bfs".')
     
 
+    def compute_node_positions(self):
+        """
+        Computes the positions of the nodes in the graph for visualization.
+        This is done by creating a visualization graph, identical to the original graph, but the nodes are added
+        to the graph in a order that reflects the layering of the quantum circuit: in this way their positions
+        can be easily computed for visualization.
+        """
+        self.visualization_graph = nx.DiGraph()
+        remove_barriers = RemoveBarriers()
+        dag = circuit_to_dag(remove_barriers(self.quantum_circuit))
+        layers = list(dag.multigraph_layers())[1:-1] # exclude the first layer (input layer) and the last layer (output layer)
+        node_count = 0
+        last_nodes = {} # dictionary to store the last node for each qubit
+
+        # Iterate over the layers and gates in the circuit
+        for layer_index, layer in enumerate(layers):
+            for gate in layer:
+                # if gate is a DAGOpNode, process it. Else move to the next gate
+                if type(gate) is dagnode.DAGOpNode:
+                    gate_data = process_gate(gate, node_id=node_count, gate_type_map=self.GATE_TYPE_MAP, include_params=self.include_params, include_id_gates=self.include_identity_gates, diff_cx=self.differentiate_cx)
+                    insert_node(self.visualization_graph, gate_data, last_nodes=last_nodes)
+                else:
+                    continue
+
+                # get gate id(s)
+                if isinstance(gate_data, list): #CNOT gate
+                    gate_ids = [gate_data[0][0], gate_data[1][0]]
+                    qubits = [gate_data[0][1]['qubit'], gate_data[1][1]['qubit']]
+                
+                else:
+                    gate_ids = [gate_data[0]]
+                    qubits = [gate_data[1]['qubit']]
+
+                for gate, qubit in zip(gate_ids, qubits):
+                    self.node_positions[gate] = (layer_index, -0.5*qubit) # custom position for the node
+
+                node_count += len(gate_ids)    
+
     def draw(self, custom_labels=None, default_node_size=False, ax=None):
         """
         Visualizes the quantum circuit graph using node positions and colors.
@@ -253,81 +293,93 @@ class QuantumCircuitGraph:
             'x': 'X',
             'y': 'Y',
             'z': 'Z',
-            'ctrl': ' ',
-            'trgt': '+',
+            'control': ' ',
+            'target': '+',
             'id': 'I',
             't': 'T',
         }
 
-        if custom_labels is None:
-            node_labels = {node: node_labels_map[self.graph.nodes[node]['type']] if self.graph.nodes[node]['type'] != 'cx' 
-                                else node_labels_map[self.graph.nodes[node]['ctrl_trgt']]
-                                for node in self.graph.nodes()}
-        else:
-            node_labels = custom_labels
-
         if ax is None:
             plt.figure(figsize=(3, 2.2))
-            ax = plt.gca() # get current axes
+            ax_new = plt.gca() # get current axes
+        else:
+            ax_new = ax
+
+        if self.node_positions == {} or self.node_positions is None or self.visualization_graph is None:
+            self.compute_node_positions()
+
+        if custom_labels is None:
+            node_labels = {node: node_labels_map[self.visualization_graph.nodes[node]['type']] if self.visualization_graph.nodes[node]['type'] != 'cx' 
+                                else node_labels_map[self.visualization_graph.nodes[node]['ctrl_trgt']]
+                                for node in self.visualization_graph.nodes()}
+        else:
+            node_labels = custom_labels
 
         # nodes
         options = {"alpha": 0.95}
         nx.draw_networkx_nodes(
-            self.graph, 
+            self.visualization_graph, 
             self.node_positions, 
-            nodelist= [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'cx'],
-            node_color=[node_colors[self.graph.nodes[node]['type']] for node in self.graph.nodes() if self.graph.nodes[node]['type'] != 'cx'], 
+            nodelist= [node for node in self.visualization_graph.nodes() if self.visualization_graph.nodes[node]['type'] != 'cx'],
+            node_color=[node_colors[self.visualization_graph.nodes[node]['type']] for node in self.visualization_graph.nodes() if self.visualization_graph.nodes[node]['type'] != 'cx'], 
             node_shape='s',
             node_size=600,
+            ax=ax_new,
             **options)
         
         nx.draw_networkx_nodes(
-            self.graph, 
+            self.visualization_graph, 
             self.node_positions, 
-            nodelist= [node for node in self.graph.nodes() if self.graph.nodes[node]['type'] == 'cx'],
+            nodelist= [node for node in self.visualization_graph.nodes() if self.visualization_graph.nodes[node]['type'] == 'cx'],
             node_color=node_colors['cx'],
             node_shape='o',
             node_size=250 if not default_node_size else 300,
+            ax=ax_new,
             **options)
 
         # edges
         nx.draw_networkx_edges(
-            self.graph, 
+            self.visualization_graph, 
             self.node_positions, 
-            edgelist=[(u, v) for u, v, data in self.graph.edges(data=True) if data['type'] != "cx"],
+            edgelist=[(u, v) for u, v, data in self.visualization_graph.edges(data=True) if data['type'] != "cx"],
             width=1.0, edge_color='black',
             arrowstyle= '-|>', arrowsize=10, arrows=True,
             min_target_margin=12,
-            min_source_margin=10
+            min_source_margin=10,
+            ax=ax_new,
         )
 
         #draw edges for cx gates as undirected (double directed edges)
         nx.draw_networkx_edges(
-            self.graph,
+            self.visualization_graph,
             self.node_positions,
-            edgelist=[(u, v) for u, v, data in self.graph.edges(data=True) if data['type'] == "cx"],
+            edgelist=[(u, v) for u, v, data in self.visualization_graph.edges(data=True) if data['type'] == "cx"],
             width=2,
             alpha=0.5,
             edge_color='cornflowerblue',
             min_target_margin=10,
             min_source_margin=10,
+            ax=ax_new,
         )
 
 
         # labels
         nx.draw_networkx_labels(
-            self.graph, 
+            self.visualization_graph, 
             self.node_positions, 
             node_labels, 
             font_size=15, 
             font_color="whitesmoke", 
             verticalalignment="center_baseline", 
-            horizontalalignment="center")
+            horizontalalignment="center",
+            ax=ax_new,
+            )
 
-        
         plt.tight_layout()
-        plt.axis("off")
-        plt.show()
+        ax_new.set_axis_off()
+        
+        if ax is None:
+            plt.show()
     
         # def encode_sequence(self, sequence):
     #     """
@@ -358,25 +410,31 @@ class QuantumCircuitGraph:
     
 
     # define a method to draw both the circuit and the correspondent graph
-    def draw_circuit_and_graph(self, circuit_like_graph=False, axes=None):
+    def draw_circuit_and_graph(self, circuit_like_graph=False, axes=None, titles=True):
         """
         Visualizes the quantum circuit and its graph representation side by side.
         """
-        if not axes:
+        if axes is None:
             _, axes = plt.subplots(1, 2, figsize=(14, 7))
+            print("Creating axes")
         else:
             if len(axes) != 2:
                 raise ValueError("Provide exactly two axes for the combined plot.")
-        
+
         if circuit_like_graph:            
             self.quantum_circuit.draw(output='mpl', ax=axes[0])
-            axes[0].set_title("Quantum Circuit")
-        
             self.draw(ax=axes[1])
-            axes[1].set_title("Graph representation of the Quantum Circuit")
+
+            axes[0].set_axis_off()
+            axes[1].set_axis_off()
+
+            if titles:
+                axes[0].set_title("Quantum Circuit")
+                axes[1].set_title("Graph representation of the Quantum Circuit")
             
             # Display the combined plot
-            plt.show()
+            if axes is None:
+                plt.show()
 
         else:
             draw_circuit_and_graph((self.quantum_circuit, self.graph), axes)
