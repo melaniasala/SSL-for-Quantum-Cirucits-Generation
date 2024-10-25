@@ -165,42 +165,70 @@ def process_gate(gate, gate_type_map, node_id=None, include_params=False, includ
 
     :return: Tuple containing the node ID, qubit, and node data
     """
-    if gate.name == 'cx':
-        try:
-            control_qubit = gate.qargs[0]._index
-            target_qubit = gate.qargs[1]._index
-        except AttributeError:
-            control_qubit = gate.qubits[0]._index
-            target_qubit = gate.qubits[1]._index
+    if isinstance(gate, tuple) and len(gate) == 3:
+        op, qubits, cbits = gate
 
-        # Create unique node_ids for the control and target qubits
-        if node_id is not None:
-            node_id_control = f"{gate.name}_{control_qubit}_control_{node_id}"
-            node_id_target = f"{gate.name}_{target_qubit}_target_{node_id}"
+        if isinstance(op, CXGate):
+            gate_type = 'cx'
+
+            control_qubit = qubits[0]._index 
+            target_qubit = qubits[1]._index
+
+            # Create unique node_ids for the control and target qubits
+            if node_id is not None:
+                node_id_control = f"{gate_type}_{control_qubit}_control_{node_id}"
+                node_id_target = f"{gate_type}_{target_qubit}_target_{node_id}"
+            else:
+                node_id_control = f"{gate_type}_{control_qubit}_control_{gate._node_id}"
+                node_id_target = f"{gate_type}_{target_qubit}_target_{gate._node_id}"
+
         else:
-            node_id_control = f"{gate.name}_{control_qubit}_control_{gate._node_id}"
-            node_id_target = f"{gate.name}_{target_qubit}_target_{gate._node_id}"
+            gate_type = op.name
+            qubit = qubits[0]._index
+
+            # Create a unique node_id for the gate
+            if node_id is not None:
+                node_id = f"{gate_type}_{qubit}_{node_id}"
+            else:
+                node_id = f"{gate_type}_{qubit}_{gate._node_id}"
+
+        params = op.params
 
     else:
-        try:
-            qubit = gate.qargs[0]._index
-        except AttributeError:
-            qubit = gate.qubits[0]._index
+        gate_type = gate.name
+        if gate_type == 'cx':
+            try:
+                control_qubit = gate.qargs[0]._index
+                target_qubit = gate.qargs[1]._index
+            except AttributeError:
+                control_qubit = gate.qubits[0]._index
+                target_qubit = gate.qubits[1]._index
 
-        # Create a unique node_id for the gate
-        if node_id is not None:
-            node_id = f"{gate.name}_{qubit}_{node_id}"
+            # Create unique node_ids for the control and target qubits
+            if node_id is not None:
+                node_id_control = f"{gate.name}_{control_qubit}_control_{node_id}"
+                node_id_target = f"{gate.name}_{target_qubit}_target_{node_id}"
+            else:
+                node_id_control = f"{gate.name}_{control_qubit}_control_{gate._node_id}"
+                node_id_target = f"{gate.name}_{target_qubit}_target_{gate._node_id}"
+
         else:
-            node_id = f"{gate.name}_{qubit}_{gate._node_id}"
+            try:
+                qubit = gate.qargs[0]._index
+            except AttributeError:
+                qubit = gate.qubits[0]._index
 
-    # Get params
-    try:
-        params = gate.op.params
-    except AttributeError:
-        params = gate.params
+            # Create a unique node_id for the gate
+            if node_id is not None:
+                node_id = f"{gate.name}_{qubit}_{node_id}"
+            else:
+                node_id = f"{gate.name}_{qubit}_{gate._node_id}"
 
-    # Get gate type
-    gate_type = gate.name
+        # Get params
+        try:
+            params = gate.op.params
+        except AttributeError:
+            params = gate.params
 
     # Get feature vector(s) and return node(s) data
     if gate_type == 'cx':
@@ -241,12 +269,13 @@ def insert_node(graph, node_data, pred_succ=None, last_nodes=None):
         if pred_succ:
             pred_ctrl, succ_ctrl = pred_succ[0]
             pred_trgt, succ_trgt = pred_succ[1]
+            print(f"Pred_ctrl: {pred_ctrl}, Succ_ctrl: {succ_ctrl}, Pred_trgt: {pred_trgt}, Succ_trgt: {succ_trgt}")
 
             # check if qubit of predecessor and successor nodes are the same as the control and target qubits
             if not int(pred_ctrl.split('_')[1]) == int(succ_ctrl.split('_')[1]) == control_qubit:
-                raise ValueError("Control qubit does not match predecessor or successor nodes")
+                raise ValueError(f"Control qubit {control_qubit} does not match predecessor or successor nodes {pred_ctrl}, {succ_ctrl}")
             if not int(pred_trgt.split('_')[1]) == int(succ_trgt.split('_')[1]) == target_qubit:
-                raise ValueError("Target qubit does not match predecessor or successor nodes")
+                raise ValueError(f"Target qubit {target_qubit} does not match predecessor or successor nodes {pred_trgt}, {succ_trgt}")
             
             # connect control and target nodes to their predecessor and successor nodes
             graph.add_edge(pred_ctrl, control_id, type='qubit', create_using=nx.DiGraph()) # edge going from predecessor node to control node
@@ -281,6 +310,7 @@ def insert_node(graph, node_data, pred_succ=None, last_nodes=None):
         if pred_succ:
             # First check if the qubit of the predecessor and successor nodes is the same as the current node
             pred_node, succ_node = pred_succ
+            print(f"Pred_node: {pred_node}, Succ_node: {succ_node}")
             if not int(pred_node.split('_')[1]) == int(succ_node.split('_')[1]) == qubit:
                 raise ValueError("Qubit does not match predecessor or successor nodes")
             
