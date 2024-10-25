@@ -6,7 +6,6 @@ from Data.data_preprocessing import build_graph_from_circuit, process_gate, inse
 from Data.QuantumCircuitGraph import QuantumCircuitGraph
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import CXGate, HGate, TGate, XGate, ZGate
-from qiskit.circuit import Operation
 
 
 class NoMatchingSubgraphsError(Exception):
@@ -999,6 +998,30 @@ class ParallelXTransformation(CircuitTransformation):
 
         self.pattern_subgraph = [('cx-x-cx', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False))]
 
+    def find_matching_subgraph(self):
+        try:
+            super().find_matching_subgraph()
+        except NoMatchingSubgraphsError:
+            self.matching_subgraph = None
+
+        # Check if there is a parallel X gate in the circuit
+        matching_parallel_x = self.find_parallel_x()
+
+        if matching_parallel_x and self.matching_subgraph:
+            # Choose randomly which one to apply the transformation to
+            if random.choice([True, False]):
+                self.matching_subgraph = matching_parallel_x
+                self.matching_key = 'parallel-x'
+
+        elif not self.matching_subgraph and matching_parallel_x:
+            self.matching_subgraph = matching_parallel_x
+            self.matching_key = 'parallel-x'
+
+        # else, keep the original matching subgraph and key (which is the CNOT-X-CNOT pattern)
+
+        if not self.matching_subgraph and not matching_parallel_x:
+            raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")
+
     def create_replacement(self):
         """Create the replacement subgraph for the transformation."""
         try:
@@ -1044,32 +1067,6 @@ class ParallelXTransformation(CircuitTransformation):
         except Exception as e:
             raise TransformationError(f"Failed to create replacement: {e}")
         
-
-    def find_matching_subgraph(self):
-        try:
-            super().find_matching_subgraph()
-        except NoMatchingSubgraphsError:
-            self.matching_subgraph = None
-
-        # Check if there is a parallel X gate in the circuit
-        matching_parallel_x = self.find_parallel_x()
-
-        if matching_parallel_x and self.matching_subgraph:
-            # Choose randomly which one to apply the transformation to
-            if random.choice([True, False]):
-                self.matching_subgraph = matching_parallel_x
-                self.matching_key = 'parallel-x'
-
-        elif not self.matching_subgraph and matching_parallel_x:
-            self.matching_subgraph = matching_parallel_x
-            self.matching_key = 'parallel-x'
-
-        # else, keep the original matching subgraph and key (which is the CNOT-X-CNOT pattern)
-
-        if not self.matching_subgraph and not matching_parallel_x:
-            raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")
-
-
     def apply_transformation(self):
         """TODO"""
         try:
