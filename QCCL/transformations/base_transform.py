@@ -121,3 +121,9 @@ class CircuitTransformation:
                 circuit_index += 1  # Move to the next circuit instruction
 
         self.graph_to_circuit_mapping = graph_to_circuit_mapping
+
+
+# --- Helper functions --- #
+
+def get_qubit(node_label):
+    return int(node_label.split('_')[1])
