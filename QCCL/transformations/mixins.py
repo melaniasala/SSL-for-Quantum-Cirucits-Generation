@@ -3,7 +3,7 @@ import networkx as nx
 from qiskit import QuantumCircuit
 
 from Data.data_preprocessing import process_gate, insert_node, build_circuit_from_graph
-from base_transform import TransformationError
+from QCCL.transformations.base_transform import TransformationError, get_qubit
 
 class ParallelGatesMixin:
     """
@@ -41,17 +41,24 @@ class ParallelGatesMixin:
         """
         # If matching key is a string in the format 'cx-' + gate_type + '-cx'
         if matching_key == 'cx-' + self.gate_type + '-cx':
-            iter_nodes = iter(matching_subgraph.keys())
-            for node in iter_nodes:
-                if 'control' in node:
-                    control_qubit = int(node.split('_')[1])
-                elif 'target' in node:
-                    target_qubit = int(node.split('_')[1])
+            control_qubit = None
+            target_qubit = None
+            for node in matching_subgraph.keys():
+                if 'control' in node and control_qubit is None:
+                    control_qubit = get_qubit(node)
+                elif 'target' in node and target_qubit is None:
+                    target_qubit = get_qubit(node)
+                if control_qubit is not None and target_qubit is not None:
+                    break
 
         # If matching key is a string in the format 'parallel-' + gate_type
         elif matching_key == 'parallel-' + self.gate_type:
-            qubits = list(set(int(node.split('_')[1]) for node in matching_subgraph.keys()))
-            control_qubit, target_qubit = qubits[0], qubits[1]
+            nodes = list(matching_subgraph.keys())
+            control_qubit = get_qubit(nodes[0])
+            target_qubit = get_qubit(nodes[1])
+
+        if control_qubit is None or target_qubit is None:
+            raise TransformationError("Failed to extract control and target qubits from the matching subgraph.")
 
         return control_qubit, target_qubit
     
@@ -118,7 +125,7 @@ class ParallelGatesMixin:
             return added_node_label[0], pred_target  # Update control predecessor only
 
         elif isinstance(gate_data, tuple) and len(gate_data) == 2 and self.gate_type == 'z':
-            added_node_label = insert_node(graph, gate_data, (pred_control, succ_control))
+            added_node_label = insert_node(graph, gate_data, (pred_target, succ_target))
             return pred_control, added_node_label[0]  # Update target predecessor only
         
         else:
