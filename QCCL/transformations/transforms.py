@@ -1,131 +1,11 @@
 import random
 
-import networkx as nx
-from networkx.algorithms.isomorphism import DiGraphMatcher
-from Data.data_preprocessing import build_graph_from_circuit, process_gate, insert_node, build_circuit_from_graph
+from QCCL.transformations.base_transform import CircuitTransformation, TransformationError, NoMatchingSubgraphsError, get_qubit
+from QCCL.transformations.mixins import ParallelGatesMixin
+from Data.data_preprocessing import build_graph_from_circuit
 from Data.QuantumCircuitGraph import QuantumCircuitGraph
 from qiskit import QuantumCircuit
-from qiskit.circuit.library import CXGate, HGate, TGate, XGate, ZGate
-
-
-class NoMatchingSubgraphsError(Exception):
-    """Exception raised when no matching subgraphs are found for the transformation."""
-    pass
-
-class TransformationError(Exception):
-    """Exception raised when there is an error during the transformation process."""
-    pass
-
-
-class CircuitTransformation:
-    """Base class for all quantum circuit transformations represented as graphs."""
-
-    def __init__(self, qcg: QuantumCircuitGraph):
-        self.circuit, self.graph = qcg.quantum_circuit, qcg.graph
-        self.num_qubits = self.circuit.num_qubits
-        self.gate_type_map = qcg.GATE_TYPE_MAP
-
-        self.matching_subgraph = None  # Stores found subgraph matches
-        self.matching_key = None  # Key of the matching subgraph (not used for all transformations)
-        self.pattern_subgraph = None  # Pattern subgraph to be matched
-        self.replacement = None  # Replacement subgraph
-
-        self.gate_pool = [XGate(), HGate(), CXGate(), ZGate(), TGate()] # Pool of available gates
-
-        self.graph_to_circuit_mapping = None  # Mapping between circuit's gate index and graph nodes
-
-    def apply(self):
-        """Apply the transformation to the circuit graph."""
-        self.create_pattern()  # Step 1: Generate pattern subgraph
-        if self.pattern_subgraph:  # Step 2: If there is a pattern, search for matches
-            self.find_matching_subgraph()
-            if not self.matching_subgraph:  # No matches found, return None
-                raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")
-
-        try:
-            self.create_replacement() # Step 3: Generate replacement subgraph
-            return self.apply_transformation()  # Step 4: Attempt to apply the transformation
-        except Exception as e:
-            raise TransformationError(f"An error occurred during the transformation: {e}")
-
-    def create_pattern(self):
-        """Generate the pattern to be found."""
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    def find_matching_subgraph(self):
-        """Find matching subgraphs (pattern) in the graph."""
-        if self.pattern_subgraph is None:
-            # No pattern means transformation applies everywhere, no need to search
-            return
-        else:
-            # shuffle the pattern subgraphs to avoid bias
-            random.shuffle(self.pattern_subgraph)
-            # iterate over all possible pattern subgraphs until a match is found; if not, raise NoMatchingSubgraphsError
-            print(f"Pattern subgraphs: {self.pattern_subgraph}")
-            for key, subgraph in self.pattern_subgraph:
-                matcher = DiGraphMatcher(self.graph, subgraph, 
-                                         node_match=lambda n1, n2: n1['type'] == n2['type'] and n1['ctrl_trgt'] == n2['ctrl_trgt'])
-                matching_subgraphs = list(matcher.subgraph_isomorphisms_iter()) 
-                matching_key = key
-                # matching_subgraphs is a list of dictionaries, where each dictionary maps nodes in the pattern to nodes in the graph (by node labels, graph_label:pattern_label)
-                
-                if matching_subgraphs:
-                    break
-            
-            print(f"Matching subgraphs: {matching_subgraphs}")
-            print(f"Matching key: {matching_key}")
-
-            if not matching_subgraphs:
-                raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")
-            
-            # Shuffle the matching subgraphs to avoid bias and store a single match
-            random.shuffle(matching_subgraphs)
-            print(f"Matching subgraph selected: {matching_subgraphs[0]}")
-            self.matching_subgraph = matching_subgraphs[0] 
-            self.matching_key = matching_key
-            
-    def create_replacement(self):
-        """Generate the replacement subgraph to be applied."""
-        raise NotImplementedError("Subclasses must implement this method.")
-
-    def apply_transformation(self):
-        """Apply the transformation by replacing matched patterns in the graph."""
-        raise NotImplementedError("Subclasses must implement this method.")
-    
-    def get_matching_indices(self):
-    # Retrieve indices of gates in the matching subgraph
-        if not self.matching_subgraph:
-            raise TransformationError("No matching subgraphs found for the identity removal transformation.")
-        
-        if not self.graph_to_circuit_mapping:
-            self.compute_graph_to_circuit_mapping()
-        matching_idxs = [self.graph_to_circuit_mapping[node] for node in self.matching_subgraph.keys()]
-        # retrieve unique indices
-        return list(set(matching_idxs))
-    
-    def compute_graph_to_circuit_mapping(self):
-        graph_to_circuit_mapping = {}
-
-        # Initialize a graph node index tracker
-        circuit_index = 0
-
-        print(f"Graph nodes: {self.graph.nodes}")
-
-        for node in self.graph.nodes:
-            if 'cx' in node:  # Handle CNOT nodes
-                if 'control' in node or 'target' in node:
-                    # Map the control and target nodes to the corresponding circuit index
-                    graph_to_circuit_mapping[node] = circuit_index
-                    # Only move to the next circuit instruction after handling both control and target
-                    if 'target' in node:
-                        circuit_index += 1  # Move to the next CNOT instruction after the target node
-            else:  # Single-qubit gates
-                # Map the single-qubit node to the corresponding circuit index
-                graph_to_circuit_mapping[node] = circuit_index
-                circuit_index += 1  # Move to the next circuit instruction
-
-        self.graph_to_circuit_mapping = graph_to_circuit_mapping
-    
+from qiskit.circuit.library import CXGate, HGate, TGate, XGate, ZGate 
 
 
     
@@ -258,9 +138,7 @@ class RemoveIdentityGatesTransformation(CircuitTransformation):
             return QuantumCircuitGraph(transformed_qc)
         
         except Exception as e:
-            raise TransformationError(f"Failed to apply the transformation: {e}")
-   
-
+            raise TransformationError(f"Failed to apply the transformation: {e}")  
 
 
 # ------------------ Commutation transformations ------------------ #
@@ -520,9 +398,9 @@ class SwapControlTargetTransformation(CircuitTransformation):
             # until both control and target qubits are found, iterate over the nodes in the matching subgraph
             for node in iter_nodes:
                 if 'control' in node: # get control qubit and assign to target qubit for swap
-                    target_qubit = int(node.split('_')[1]) # cx_{control_qubit}_control_{node_id}
+                    target_qubit = get_qubit(node)
                 elif 'target' in node: # get target qubit and assign to control qubit for swap
-                    control_qubit = int(node.split('_')[1]) # cx_{target_qubit}_target_{node_id}
+                    control_qubit = get_qubit(node)
 
                 if control_qubit is not None and target_qubit is not None:
                     break
@@ -728,9 +606,9 @@ class CNOTDecompositionTransformation(CircuitTransformation):
                 # until both control and target qubits are found, iterate over the nodes in the matching subgraph
                 for node in iter_nodes:
                     if 'control' in node: # get control qubit and assign to target qubit for swap
-                        control_qubit = int(node.split('_')[1]) # cx_{control_qubit}_control_{node_id}
+                        control_qubit = get_qubit(node)
                     elif 'target' in node: # get target qubit and assign to control qubit for swap
-                        target_qubit = int(node.split('_')[1]) # cx_{target_qubit}_target_{node_id}
+                        target_qubit = get_qubit(node)
 
                     if control_qubit is not None and target_qubit is not None:
                         break
@@ -759,9 +637,9 @@ class CNOTDecompositionTransformation(CircuitTransformation):
                 # Get the qubits on which the replacing CNOT gates act:
                 # - control qubit is the qubit of the first node in the matching subgraph
                 # - target qubit is the qubit of the last node in the matching subgraph
-                control_qubit = int(list(self.matching_subgraph.keys())[0].split('_')[1])
-                ancilla_qubit = int(list(self.matching_subgraph.keys())[1].split('_')[1])
-                target_qubit = int(list(self.matching_subgraph.keys())[-1].split('_')[1])
+                control_qubit = get_qubit(list(self.matching_subgraph.keys())[0])
+                ancilla_qubit = get_qubit(list(self.matching_subgraph.keys())[1])
+                target_qubit = get_qubit(list(self.matching_subgraph.keys())[-1])
 
                 replacement = []
                 # Choose randomly if substitute with a single CNOT or with the other sequence of CNOTs
@@ -777,9 +655,10 @@ class CNOTDecompositionTransformation(CircuitTransformation):
                 # Get the qubits on which the replacing CNOT gates act:
                 # - target qubit is the qubit of the second node in the matching subgraph
                 # - control qubit is the qubit of the second-last node in the matching subgraph
-                target_qubit = int(list(self.matching_subgraph.keys())[1].split('_')[1])
-                ancilla_qubit = int(list(self.matching_subgraph.keys())[0].split('_')[1])
-                control_qubit = int(list(self.matching_subgraph.keys())[-2].split('_')[1])
+                target_qubit = get_qubit(list(self.matching_subgraph.keys())[1])
+                ancilla_qubit = get_qubit(list(self.matching_subgraph.keys())[0])
+                control_qubit = get_qubit(list(self.matching_subgraph.keys())[-2])
+
 
                 replacement = []
                 # Choose randomly if substitute with a single CNOT or with the other sequence of CNOTs
@@ -896,7 +775,7 @@ class ChangeOfBasisTransformation(CircuitTransformation):
             if not self.matching_key:
                 raise TransformationError("No matching key found for the transformation.")
 
-            qubit = int(list(self.matching_subgraph.keys())[0].split('_')[1])
+            qubit = get_qubit(list(self.matching_subgraph.keys())[0])
             replacement_key = self.transformation_rules.get(self.matching_key.upper())
 
             if replacement_key:
@@ -971,18 +850,22 @@ class ChangeOfBasisTransformation(CircuitTransformation):
             raise TransformationError(f"Failed to apply transformation: {e}")
         
 
-class ParallelXTransformation(CircuitTransformation):
+class ParallelXTransformation(CircuitTransformation, ParallelGatesMixin):
     """
-    #TODO
+    A transformation class for matching and replacing parallel X gates in a quantum circuit.
+    Parallel X gates are defined as two X gates acting on different qubits with no intermediate CNOT gates.
     """
 
     def __init__(self, qcg):
         super().__init__(qcg)
+        ParallelGatesMixin.__init__(self, gate_type='x')
+
 
     def create_pattern(self):
         """
-        Create the pattern to be matched for the reverse transformation. How to match a parallel X gate 
-        on two qubits in the circuit will be implemented in matching_subgraph method.
+        Creates the pattern to match for the transformation.
+        The pattern includes two CNOT gates with an X gate in between, 
+        acting on the same control qubit, to be transformed if matched.
         """
         # Define the pattern to match two CNOTs with a X gate in the middle of the controls
         #       ┌───┐    
@@ -999,199 +882,186 @@ class ParallelXTransformation(CircuitTransformation):
         self.pattern_subgraph = [('cx-x-cx', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False))]
 
     def find_matching_subgraph(self):
+        """
+        Finds a subgraph that matches either the cx-x-cx pattern or parallel X gates.
+        Chooses randomly between matched patterns if both are found.
+        """
         try:
             super().find_matching_subgraph()
         except NoMatchingSubgraphsError:
             self.matching_subgraph = None
 
         # Check if there is a parallel X gate in the circuit
-        matching_parallel_x = self.find_parallel_x()
+        matching_parallel_x = self.find_parallel_gates(self.graph)
 
-        if matching_parallel_x and self.matching_subgraph:
-            # Choose randomly which one to apply the transformation to
-            if random.choice([True, False]):
+        if matching_parallel_x:
+            # Randomly choose between cx-x-cx pattern and parallel X pattern
+            if not self.matching_subgraph or random.choice([True, False]):
                 self.matching_subgraph = matching_parallel_x
                 self.matching_key = 'parallel-x'
-
-        elif not self.matching_subgraph and matching_parallel_x:
-            self.matching_subgraph = matching_parallel_x
-            self.matching_key = 'parallel-x'
-
-        # else, keep the original matching subgraph and key (which is the CNOT-X-CNOT pattern)
-
-        if not self.matching_subgraph and not matching_parallel_x:
+        
+        if not self.matching_subgraph:
             raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")
 
     def create_replacement(self):
-        """Create the replacement subgraph for the transformation."""
-        try:
-            if not self.matching_subgraph:
-                raise TransformationError("No matching subgraphs found for the control-target swap transformation.")
-            
-            if not self.matching_key:
-                raise TransformationError("No matching key found for the control-target swap transformation.")
-            
-            if self.matching_key == 'cx-x-cx':
-                control_qubit = None
-                target_qubit = None
+        """
+        Creates the replacement subgraph based on the matching pattern found.
+        For 'cx-x-cx', replaces with two X gates on the control and target qubits.
+        For 'parallel-x', replaces with a CNOT-X-CNOT sequence.
+        """
+        if not self.matching_subgraph:
+            raise TransformationError("No matching subgraphs found for transformation.")
+        
+        control_qubit, target_qubit = self._get_control_target_qubits(self.matching_key, self.matching_subgraph)
 
-                iter_nodes = iter(self.matching_subgraph.keys())
-                for node in iter_nodes:
-                    if 'control' in node:
-                        control_qubit = int(node.split('_')[1])
-                    elif 'target' in node:
-                        target_qubit = int(node.split('_')[1])
-
-                replacement = []
-                replacement.append((XGate(), [self.circuit.qubits[control_qubit]], []))
-                replacement.append((XGate(), [self.circuit.qubits[target_qubit]], []))
-
-            elif self.matching_key == 'parallel-x':
-                # Get the qubits associated with the two parallel X gates and assign randomly to control and target
-                qubits = list(set([int(node.split('_')[1]) for node in self.matching_subgraph.keys()]))
-                control_qubit = qubits[0]
-                target_qubit = qubits[1]
-
-                replacement = []
-                replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
-                replacement.append((XGate(), [self.circuit.qubits[control_qubit]], []))
-                replacement.append((CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []))
-
-            else:
-                raise TransformationError(f"Unexpected matching key for control-target swap: {self.matching_key}")
-            
-            print(f"Replacement: {replacement}")
-
-            self.replacement = replacement
-
-        except Exception as e:
-            raise TransformationError(f"Failed to create replacement: {e}")
+        if self.matching_key == 'cx-x-cx':
+            self.replacement = [
+                (XGate(), [self.circuit.qubits[control_qubit]], []),
+                (XGate(), [self.circuit.qubits[target_qubit]], [])
+            ]
+        elif self.matching_key == 'parallel-x':
+            self.replacement = [
+                (CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []),
+                (XGate(), [self.circuit.qubits[control_qubit]], []),
+                (CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], [])
+            ]
+        else:
+            raise TransformationError(f"Unexpected matching key: {self.matching_key}")
         
     def apply_transformation(self):
-        """TODO"""
+        """
+        Applies the transformation by replacing the matched subgraph with the replacement sequence.
+        Converts the graph back to a circuit after modification.
+        """
+        if not self.replacement:
+            raise TransformationError("No replacement gates found for the transformation.")
+    
+        # Retrieve indices of gates in the matching subgraph
+        matching_indices = self.get_matching_indices()
+
+        # If the matching key is 'cx-x-cx', the replacement is a list of gates to be inserted in the circuit
+        if self.matching_key == 'cx-x-cx':
+            transformed_qc = self._apply_cx_gate_cx_transformation(self.circuit, 
+                                                                    self.replacement, 
+                                                                    matching_indices)
+        elif self.matching_key == 'parallel-x':
+            trasformed_graph = self.graph.copy() 
+            transformed_qc = self._apply_parallel_gate_transformation(trasformed_graph, 
+                                                                        self.matching_subgraph, 
+                                                                        self.replacement, 
+                                                                        self.gate_type_map)
+        else:
+            raise TransformationError(f"Unexpected matching key: {self.matching_key}")
+        
+        return QuantumCircuitGraph(transformed_qc)
+    
+
+class ParallelZTransformation(CircuitTransformation, ParallelGatesMixin):
+    """
+    A transformation class for matching and replacing parallel Z gates in a quantum circuit.
+    Parallel Z gates are defined as two Z gates acting on different qubits with no intermediate CNOT gates.
+    """
+
+    def __init__(self, qcg):
+        super().__init__(qcg)
+        ParallelGatesMixin.__init__(self, gate_type='z')
+
+    def create_pattern(self):
+        """
+        Creates the pattern to match for the transformation.
+        The pattern includes two CNOT gates with a Z gate in between, 
+        acting on the target qubit, to be transformed if matched.
+        """
+        # Define the pattern to match two CNOTs with a Z gate in the middle on the target qubit   
+        #  ──■───────────■──
+        #  ┌─┴─┐ ┌───┐ ┌─┴─┐
+        #  ┤ X ├─┤ Z ├─┤ X ├
+        #  └───┘ └───┘ └───┘
+
+        pattern_subcircuit = QuantumCircuit(2)
+        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+        pattern_subcircuit.append(ZGate(), [pattern_subcircuit.qubits[1]])
+        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
+
+        self.pattern_subgraph = [('cx-z-cx', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False))]
+
+    def find_matching_subgraph(self):
+        """
+        Finds a subgraph that matches either the cx-z-cx pattern or parallel Z gates.
+        Chooses randomly between matched patterns if both are found.
+        """
         try:
-            if not self.replacement:
-                raise TransformationError("No replacement gates found for the transformation.")
+            super().find_matching_subgraph()
+        except NoMatchingSubgraphsError:
+            self.matching_subgraph = None
+
+        # Check if there is a parallel Z gate in the circuit
+        matching_parallel_z = self.find_parallel_gates(self.graph)
+
+        if matching_parallel_z:
+            # Randomly choose between cx-z-cx pattern and parallel Z pattern
+            if not self.matching_subgraph or random.choice([True, False]):
+                self.matching_subgraph = matching_parallel_z
+                self.matching_key = 'parallel-z'
         
-            # Retrieve indices of gates in the matching subgraph
-            matching_idxs = self.get_matching_indices()
+        if not self.matching_subgraph:
+            raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")
 
-            # Get the list of current operations in the circuit
-            operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
+    def create_replacement(self):
+        """
+        Creates the replacement subgraph based on the matching pattern found.
+        For 'cx-z-cx', replaces with two Z gates on the control and target qubits.
+        For 'parallel-z', replaces with a CNOT-Z-CNOT sequence.
+        """
+        if not self.matching_subgraph:
+            raise TransformationError("No matching subgraphs found for transformation.")
+        
+        control_qubit, target_qubit = self._get_control_target_qubits(self.matching_key, self.matching_subgraph)
 
-            # If the matching key is 'cx-x-cx', the replacement is a list of gates to be inserted in the circuit
-            if self.matching_key == 'cx-x-cx':
-                idx_cx1, idx_x, idx_cx2 = matching_idxs
-                transformed_operations = []
+        if self.matching_key == 'cx-z-cx':
+            self.replacement = [
+                (ZGate(), [self.circuit.qubits[control_qubit]], []),
+                (ZGate(), [self.circuit.qubits[target_qubit]], [])
+            ]
+        elif self.matching_key == 'parallel-z':
+            self.replacement = [
+                (CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], []),
+                (ZGate(), [self.circuit.qubits[target_qubit]], []),
+                (CXGate(), [self.circuit.qubits[control_qubit], self.circuit.qubits[target_qubit]], [])
+            ]
+        else:
+            raise TransformationError(f"Unexpected matching key: {self.matching_key}")
+    
+    def apply_transformation(self):
+        """
+        Applies the transformation by replacing the matched subgraph with the replacement sequence.
+        Converts the graph back to a circuit after modification.
+        """
+        if not self.replacement:
+            raise TransformationError("No replacement gates found for the transformation.")
+    
+        # Retrieve indices of gates in the matching subgraph
+        matching_indices = self.get_matching_indices()
 
-                for i, op in enumerate(operations):
-                    if i == idx_x:
-                        transformed_operations.extend(self.replacement)
-                    elif i not in [idx_cx1, idx_cx2]:
-                        transformed_operations.append(op)
-
-                # Create a new circuit with the transformed operations
-                transformed_qc = QuantumCircuit(self.num_qubits)
-                for instruction in transformed_operations:
-                    inst, qargs, cargs = instruction
-                    transformed_qc.append(inst, qargs, cargs)
-
-            elif self.matching_key == 'parallel-x':
-                x_control, x_target = self.matching_subgraph.keys()
-                transformed_operations = []
-
-                # Retrieve predecessors and successors of the X gates
-                pred_control = get_predecessor(self.graph, x_control)
-                pred_target = get_predecessor(self.graph, x_target)
-                succ_control = get_successor(self.graph, x_control)
-                succ_target = get_successor(self.graph, x_target)
-                print(f"Predecessors and successors of control X gate: {pred_control}, {succ_control}")
-                print(f"Predecessors and successors of target X gate: {pred_target}, {succ_target}")
-
-                # Remove the X gates from the circuit (and their edges)
-                # while keeping remaining gates on the qubit connected (add edges between predecessors and successors)
-                self.graph.remove_nodes_from([x_control, x_target])
-                self.graph.remove_edges_from([(pred_control, x_control), (x_control, succ_control), (pred_target, x_target), (x_target, succ_target)])
-                self.graph.add_edges_from([(pred_control, succ_control), (pred_target, succ_target)])
-
-                # Add gates to the circuit
-                for i, gate in enumerate(self.replacement):
-                    print(f"Adding gate: {gate}")
-                    gate_data = process_gate(gate, self.gate_type_map, node_id='add'+str(i))
-                    print(f"Gate data: {gate_data}")
-                    if isinstance(gate_data, list) and len(gate_data) == 2:
-                        added_node_label = insert_node(self.graph, gate_data, [(pred_control, succ_control), (pred_target, succ_target)])
-                        pred_control = added_node_label[0]
-                        pred_target = added_node_label[1]
-                    elif isinstance(gate_data, tuple) and len(gate_data) == 2:
-                        added_node_label = insert_node(self.graph, gate_data, (pred_control, succ_control))
-                        pred_control = added_node_label[0]
-                    else:
-                        raise TransformationError(f"Unexpected gate data format: {gate_data} for gate {gate}")
-
-                # Transform the graph back to a circuit
-                transformed_qc = build_circuit_from_graph(self.graph)
-
-            else:
-                raise TransformationError(f"Unexpected matching key for CNOT decomposition: {self.matching_key}")
+        # If the matching key is 'cx-z-cx', the replacement is a list of gates to be inserted in the circuit
+        if self.matching_key == 'cx-z-cx':
+            transformed_qc = self._apply_cx_gate_cx_transformation(self.circuit, 
+                                                                    self.replacement, 
+                                                                    matching_indices)
             
-            return QuantumCircuitGraph(transformed_qc)
+        elif self.matching_key == 'parallel-z':
+            trasformed_graph = self.graph.copy() 
+            transformed_qc = self._apply_parallel_gate_transformation(trasformed_graph, 
+                                                                        self.matching_subgraph, 
+                                                                        self.replacement, 
+                                                                        self.gate_type_map)
+        else:
+            raise TransformationError(f"Unexpected matching key: {self.matching_key}")
         
-        except Exception as e:
-            raise TransformationError(f"Failed to apply transformation: {e}")
-        
+        return QuantumCircuitGraph(transformed_qc)
 
-    def find_parallel_x(self):
-        # Identify all X gates in the circuit
-        x_gates = [n for n, d in self.graph.nodes(data=True) if d['type'] == 'x']
-        random.shuffle(x_gates)
 
-        # Check for parallelism (no path through CNOT)
-        for i in range(len(x_gates)):
-            for j in range(i + 1, len(x_gates)):
-                x1, x2 = x_gates[i], x_gates[j]
-                
-                # Check if the gates are on different qubits
-                if self.graph.nodes[x1]['qubit'] != self.graph.nodes[x2]['qubit']:
-                    
-                    # Check if there's no directed path between x1 and x2 (passing through a CNOT)
-                    if not nx.has_path(self.graph, x1, x2) and not nx.has_path(self.graph, x2, x1):
-                        print(f"Found parallel X gates: {x1}, {x2}")
-                        return {x1: x1, x2: x2}
-
-        # If no parallel X gates are found, return None
-        return None
 
 
 # ------------- Helper functions -------------
 
-def get_predecessor(graph, node):
-    """
-        Retrieves the predecessor of a given node in a the graph representation of a circuit.
-        
-        A node `n1` is considered a predecessor of `node` (`n2`) if:
-        - There is a directed edge from `n1` to `node` (i.e., `n1 -> node`)
-        - There is no directed edge from `node` back to `n1` (i.e., `node -> n1` does not exist)
-
-        If no predecessor is found, an empty list is returned.
-    """
-    for pred in graph.predecessors(node):
-        if not graph.has_edge(node, pred):
-            return pred
-    return None
-
-
-def get_successor(graph, node):
-    """
-        Retrieves the successor of a given node in a the graph representation of a circuit.
-        
-        A node `n1` is considered a successor of `node` (`n2`) if:
-        - There is a directed edge from `node` to `n1` (i.e., `node -> n1`)
-        - There is no directed edge from `n1` back to `node` (i.e., `n1 -> node` does not exist)
-
-        If no successor is found, an empty list is returned.
-    """
-    for succ in graph.successors(node):
-        if not graph.has_edge(succ, node):
-            return succ
-    return None
