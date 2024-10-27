@@ -104,7 +104,11 @@ class ParallelGatesMixin:
         pred_target, succ_target = get_predecessor(graph, gate_target), get_successor(graph, gate_target)
 
         graph.remove_nodes_from([gate_control, gate_target])
-        graph.add_edges_from([(pred_control, succ_control), (pred_target, succ_target)])
+        # Add edges between predecessors and successors only if both are not None (i.e., not a input/output parallel gate)
+        if pred_control is not None and succ_control is not None:
+            graph.add_edge(pred_control, succ_control)
+        if pred_target is not None and succ_target is not None:
+            graph.add_edge(pred_target, succ_target)
 
         return pred_control, succ_control, pred_target, succ_target
 
