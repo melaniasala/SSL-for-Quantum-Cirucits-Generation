@@ -271,21 +271,35 @@ def insert_node(graph, node_data, pred_succ=None, last_nodes=None):
             pred_trgt, succ_trgt = pred_succ[1]
             print(f"Pred_ctrl: {pred_ctrl}, Succ_ctrl: {succ_ctrl}, Pred_trgt: {pred_trgt}, Succ_trgt: {succ_trgt}")
 
-            # check if qubit of predecessor and successor nodes are the same as the control and target qubits
-            if not int(pred_ctrl.split('_')[1]) == int(succ_ctrl.split('_')[1]) == control_qubit:
-                raise ValueError(f"Control qubit {control_qubit} does not match predecessor or successor nodes {pred_ctrl}, {succ_ctrl}")
-            if not int(pred_trgt.split('_')[1]) == int(succ_trgt.split('_')[1]) == target_qubit:
-                raise ValueError(f"Target qubit {target_qubit} does not match predecessor or successor nodes {pred_trgt}, {succ_trgt}")
-            
-            # connect control and target nodes to their predecessor and successor nodes
-            graph.add_edge(pred_ctrl, control_id, type='qubit', create_using=nx.DiGraph()) # edge going from predecessor node to control node
-            graph.add_edge(control_id, succ_ctrl, type='qubit', create_using=nx.DiGraph()) # edge going from control node to successor node
-            graph.add_edge(pred_trgt, target_id, type='qubit', create_using=nx.DiGraph()) # edge going from predecessor node to target node
-            graph.add_edge(target_id, succ_trgt, type='qubit', create_using=nx.DiGraph()) # edge going from target node to successor node
+            # Handle control node connections if valid predecessors/successors are present
+            if pred_ctrl is not None:
+                if int(pred_ctrl.split('_')[1]) == control_qubit:
+                    graph.add_edge(pred_ctrl, control_id, type='qubit', create_using=nx.DiGraph())
+                else:
+                    raise ValueError(f"Control qubit {control_qubit} does not match predecessor node {pred_ctrl}")
+            if succ_ctrl is not None:
+                if int(succ_ctrl.split('_')[1]) == control_qubit:
+                    graph.add_edge(control_id, succ_ctrl, type='qubit', create_using=nx.DiGraph())
+                else:
+                    raise ValueError(f"Control qubit {control_qubit} does not match successor node {succ_ctrl}")
 
-            # remove edges between predecessor and successor nodes
-            graph.remove_edge(pred_ctrl, succ_ctrl)
-            graph.remove_edge(pred_trgt, succ_trgt)
+            # Handle target node connections if valid predecessors/successors are present
+            if pred_trgt is not None:
+                if int(pred_trgt.split('_')[1]) == target_qubit:
+                    graph.add_edge(pred_trgt, target_id, type='qubit', create_using=nx.DiGraph())
+                else:
+                    raise ValueError(f"Target qubit {target_qubit} does not match predecessor node {pred_trgt}")
+            if succ_trgt is not None:
+                if int(succ_trgt.split('_')[1]) == target_qubit:
+                    graph.add_edge(target_id, succ_trgt, type='qubit', create_using=nx.DiGraph())
+                else:
+                    raise ValueError(f"Target qubit {target_qubit} does not match successor node {succ_trgt}")
+
+            # Remove edges between valid predecessor and successor nodes if both exist
+            if pred_ctrl and succ_ctrl:
+                graph.remove_edge(pred_ctrl, succ_ctrl)
+            if pred_trgt and succ_trgt:
+                graph.remove_edge(pred_trgt, succ_trgt)
         
         # If no predecessor and successor nodes are provided, connect the control and target nodes to the last nodes
         else:
@@ -310,16 +324,21 @@ def insert_node(graph, node_data, pred_succ=None, last_nodes=None):
         if pred_succ:
             # First check if the qubit of the predecessor and successor nodes is the same as the current node
             pred_node, succ_node = pred_succ
-            print(f"Pred_node: {pred_node}, Succ_node: {succ_node}")
-            if not int(pred_node.split('_')[1]) == int(succ_node.split('_')[1]) == qubit:
-                raise ValueError("Qubit does not match predecessor or successor nodes")
-            
-            # Connect the node to its predecessor and successor nodes
-            graph.add_edge(pred_node, node_id, type='qubit', create_using=nx.DiGraph()) # edge going from predecessor node to current node
-            graph.add_edge(node_id, succ_node, type='qubit', create_using=nx.DiGraph()) # edge going from current node to successor node
+            # Connect to valid predecessor and successor nodes if qubits match
+            if pred_node is not None:
+                if int(pred_node.split('_')[1]) == qubit:
+                    graph.add_edge(pred_node, node_id, type='qubit', create_using=nx.DiGraph())
+                else:
+                    raise ValueError(f"Qubit {qubit} does not match predecessor node {pred_node}")
+            if succ_node is not None:
+                if int(succ_node.split('_')[1]) == qubit:
+                    graph.add_edge(node_id, succ_node, type='qubit', create_using=nx.DiGraph())
+                else:
+                    raise ValueError(f"Qubit {qubit} does not match successor node {succ_node}")
 
-            # Remove edge between predecessor and successor nodes
-            graph.remove_edge(pred_node, succ_node)
+            # Remove edge between valid predecessor and successor if both exist
+            if pred_node and succ_node:
+                graph.remove_edge(pred_node, succ_node)
 
         # If no predecessor and successor nodes are provided, connect the node to the last node
         else:
