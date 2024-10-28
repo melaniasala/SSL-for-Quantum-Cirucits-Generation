@@ -142,8 +142,11 @@ class RemoveIdentityGatesTransformation(CircuitTransformation):
 
 
 # ------------------ Commutation transformations ------------------ #
-class CommuteCNOTsTransformation(CircuitTransformation):
-    """Transformation to commute two CNOT gates in the circuit."""
+class CommuteCNOTsTransformation(CircuitTransformation, CommutationMixin):
+    """
+    Transformation to commute two CNOT gates in the circuit.
+    Two CNOT gates can be commuted if they have the same control or the same target qubits.
+    """
 
     def __init__(self, qcg):
         super().__init__(qcg)
@@ -152,56 +155,41 @@ class CommuteCNOTsTransformation(CircuitTransformation):
         """
         Create the pattern to match two CNOT gates (with the same control or same target qubits)
         """
+        self.pattern_subgraph = []
+
         # Define the pattern to match two CNOT gates with the same control
         pattern_subcircuit = QuantumCircuit(3)
         pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
         pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[2]])
 
-        self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False))
+        self.pattern_subgraph.append(('control', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False)))
 
         # Define the pattern to match two CNOT gates with the same target
         pattern_subcircuit = QuantumCircuit(3)
         pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
         pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[2], pattern_subcircuit.qubits[1]])
 
-        self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False))
+        self.pattern_subgraph.append(('target', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False)))
 
     def create_replacement(self):
-        """Since the replacement is the same as the pattern, no need to define it"""
         pass
 
     def apply_transformation(self):
-        """Apply the transformation by removing identity gates from the circuit."""
-        # TODO: Working with .data is not ideal for commutations, as it doesn't preserve the order 
-        # of operations in the middle of the two gates to be swapped
+        """Apply the transformation by commuting two CNOT gates in the circuit."""
+        if not self.matching_subgraph:
+            raise TransformationError("No matching subgraphs found for the CNOTs commutation transformation.")
+        
+        if not self.matching_key:
+            raise TransformationError("No matching key found for the CNOTs commutation transformation.")
 
-        # Retrieve indices of gates in the matching subgraph
-        matching_idxs = self.get_matching_indices()
+        transformed_graph = self.graph.copy()
+        check_graph = self.graph.copy()
+        self._commute_gates(transformed_graph, self.matching_subgraph)
 
-        # Get the list of current operations in the circuit
-        operations = list(self.circuit.data)
-        transformed_operations = operations.copy() 
+        if transformed_graph == check_graph:
+            raise TransformationError("Failed to apply the transformation: the graph was not modified.")
 
-        # Check if matching_idxs contains exactly two elements
-        if len(matching_idxs) == 2:
-            idx1, idx2 = matching_idxs
-
-            # Swap the operations at idx1 and idx2
-            transformed_operations[idx1], transformed_operations[idx2] = transformed_operations[idx2], transformed_operations[idx1]
-        else:
-            raise TransformationError(f"Expected exactly two matching indices for commutations, but got {len(matching_idxs)}: {matching_idxs}")
-
-        # Create a new circuit with the transformed operations
-        transformed_qc = QuantumCircuit(self.num_qubits)
-        for instruction in transformed_operations:
-            inst = instruction.operation  
-            qargs = instruction.qubits    
-            cargs = instruction.clbits    
-
-            transformed_qc.append(inst, qargs, cargs)
-
-        # Return the new circuit graph representation
-        return QuantumCircuitGraph(transformed_qc)
+        return QuantumCircuitGraph(build_circuit_from_graph(transformed_graph))
     
 
 class CommuteCNOTRotationTransformation(CircuitTransformation, CommutationMixin):
@@ -218,9 +206,7 @@ class CommuteCNOTRotationTransformation(CircuitTransformation, CommutationMixin)
 
     def create_pattern(self):
         """
-        Create the pattern to match a CNOT gate with a rotation gate and the corresponding replacement.
-        The replacement is the same as the pattern, but with the gates commuted: no need to define it,
-        gates will be just switched in the circuit.
+        Create the pattern to match a CNOT gate adjacent to a rotation gate on the target or control qubit.
         """
         self.pattern_subgraph = []
 
