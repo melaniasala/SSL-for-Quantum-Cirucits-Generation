@@ -496,7 +496,9 @@ def build_circuit_from_graph(graph):
     QuantumCircuit: A Qiskit QuantumCircuit object.
     """
     # Initialize a QuantumCircuit object
-    quantum_circuit = QuantumCircuit(max(list(graph.nodes(data=True)), key=lambda x: x[1]['qubit'])[1]['qubit']+1)
+    qubits = set([graph.nodes[node]['qubit'] for node in graph.nodes()])
+    n_qubits = len(qubits)
+    quantum_circuit = QuantumCircuit(n_qubits)
 
     gate_pool = {
         'h': HGate(),
@@ -511,7 +513,7 @@ def build_circuit_from_graph(graph):
 
     # Check if the number of input nodes is equal to the number of qubits
     if len(input_nodes) != quantum_circuit.num_qubits:
-        raise ValueError("Number of input nodes does not match the number of qubits in the QuantumCircuit.")
+        raise ValueError(f"Number of input nodes {len(input_nodes)} does not match the number of qubits in the circuit {quantum_circuit.num_qubits}")
     
     # Initialize the last nodes dictionary, mapping each qubit to its last node added to the QuantumCircuit
     last_nodes = {graph.nodes[input_node]['qubit']: input_node for input_node in input_nodes}
