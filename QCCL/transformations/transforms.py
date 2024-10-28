@@ -1,8 +1,8 @@
 import random
 
 from QCCL.transformations.base_transform import CircuitTransformation, TransformationError, NoMatchingSubgraphsError, get_qubit
-from QCCL.transformations.mixins import ParallelGatesMixin
-from Data.data_preprocessing import build_graph_from_circuit
+from QCCL.transformations.mixins import ParallelGatesMixin, CommutationMixin
+from Data.data_preprocessing import build_graph_from_circuit, build_circuit_from_graph
 from Data.QuantumCircuitGraph import QuantumCircuitGraph
 from qiskit import QuantumCircuit
 from qiskit.circuit.library import CXGate, HGate, TGate, XGate, ZGate 
@@ -204,7 +204,7 @@ class CommuteCNOTsTransformation(CircuitTransformation):
         return QuantumCircuitGraph(transformed_qc)
     
 
-class CommuteCNOTRotationTransformation(CircuitTransformation):
+class CommuteCNOTRotationTransformation(CircuitTransformation, CommutationMixin):
     """
     Transformation to commute a CNOT gate with a rotation gate in the circuit.
     A CNOT gate immediately preceeded/followed by a rotation gate around x-axis (X) on the target qubit can be commuted.
@@ -214,77 +214,56 @@ class CommuteCNOTRotationTransformation(CircuitTransformation):
     def __init__(self, qcg):
         super().__init__(qcg)
 
+        self.patterns = ['cx-x-target', 'x-cx-target', 'cx-z-control', 'z-cx-control', 't-cx-control', 'cx-t-control']
+
     def create_pattern(self):
         """
         Create the pattern to match a CNOT gate with a rotation gate and the corresponding replacement.
         The replacement is the same as the pattern, but with the gates commuted: no need to define it,
         gates will be just switched in the circuit.
         """
-        # CX -> X pattern (common target qubit)
-        pattern_subcircuit = QuantumCircuit(2)
-        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
-        pattern_subcircuit.append(XGate(), [pattern_subcircuit.qubits[1]])
+        self.pattern_subgraph = []
 
-        self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False))
+        for pattern in self.patterns:
+            subcircuit = QuantumCircuit(2)
 
-        # CX -> Z pattern (common control qubit)
-        pattern_subcircuit = QuantumCircuit(2)
-        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
-        pattern_subcircuit.append(ZGate(), [pattern_subcircuit.qubits[0]])
+            gates, qubit_role = pattern.split('-')[:-1], pattern.split('-')[-1]
+            common_qubit = 0 if qubit_role == 'control' else 1
 
-        self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False))
+            for gate in gates:
+                if gate == 'cx':
+                    subcircuit.append(CXGate(), [subcircuit.qubits[0], subcircuit.qubits[1]])
+                # for single-qubit gates, they should be added on qubit 0 (control) or 1 (target) based on value of common_qubit
+                elif gate == 'x':
+                    subcircuit.append(XGate(), [subcircuit.qubits[common_qubit]])
+                elif gate == 'z':
+                    subcircuit.append(ZGate(), [subcircuit.qubits[common_qubit]])
+                elif gate == 't':
+                    subcircuit.append(TGate(), [subcircuit.qubits[common_qubit]])
 
-        # X -> CX pattern (common target qubit)
-        pattern_subcircuit = QuantumCircuit(2)
-        pattern_subcircuit.append(XGate(), [pattern_subcircuit.qubits[1]])
-        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
-
-        self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False))
-
-        # Z -> CX pattern (common control qubit)
-        pattern_subcircuit = QuantumCircuit(2)
-        pattern_subcircuit.append(ZGate(), [pattern_subcircuit.qubits[0]])
-        pattern_subcircuit.append(CXGate(), [pattern_subcircuit.qubits[0], pattern_subcircuit.qubits[1]])
-
-        self.pattern_subgraph.append(build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False))
-
-        # TODO: Add pattern for T -> CX and CX -> T
+            self.pattern_subgraph.append((pattern, build_graph_from_circuit(subcircuit, self.gate_type_map, data=False)))                
 
     def create_replacement(self):
         pass
 
     def apply_transformation(self):
         """Apply the transformation by commuting a CNOT gate with a rotation gate in the circuit."""
-        # TODO: Working with .data is not ideal for commutations, as it doesn't preserve the order 
-        # of operations in the middle of the two gates to be swapped
 
-        # Retrieve indices of gates in the matching subgraph
-        matching_idxs = self.get_matching_indices()
+        if not self.matching_subgraph:
+            raise TransformationError("No matching subgraphs found for the CNOT-rotation commutation transformation.")
+        
+        if not self.matching_key:
+            raise TransformationError("No matching key found for the CNOT-rotation commutation transformation.")
 
-        # Get the list of current operations in the circuit
-        operations = list(self.circuit.data)
-        transformed_operations = operations.copy() 
+        transformed_graph = self.graph.copy()
+        check_graph = self.graph.copy()
+        self._commute(transformed_graph, self.matching_subgraph)
 
-        # Check if matching_idxs contains exactly two elements
-        if len(matching_idxs) == 2:
-            idx1, idx2 = matching_idxs
+        if transformed_graph == check_graph:
+            raise TransformationError("Failed to apply the transformation: the graph was not modified.")
 
-            # Swap the operations at idx1 and idx2
-            transformed_operations[idx1], transformed_operations[idx2] = transformed_operations[idx2], transformed_operations[idx1]
-        else:
-            raise TransformationError(f"Expected exactly two matching indices for commutations, but got {len(matching_idxs)}: {matching_idxs}")
-
-        # Create a new circuit with the transformed operations
-        transformed_qc = QuantumCircuit(self.num_qubits)
-        for instruction in transformed_operations:
-            inst = instruction.operation  
-            qargs = instruction.qubits    
-            cargs = instruction.clbits    
-
-            transformed_qc.append(inst, qargs, cargs)
-
-        # Return the new circuit graph representation
-        return QuantumCircuitGraph(transformed_qc)
+        return QuantumCircuitGraph(build_circuit_from_graph(transformed_graph))
+    
 
 
 # ------------------ Equivalence transformations ------------------ #
@@ -935,12 +914,12 @@ class ParallelXTransformation(CircuitTransformation, ParallelGatesMixin):
         """
         if not self.replacement:
             raise TransformationError("No replacement gates found for the transformation.")
-    
-        # Retrieve indices of gates in the matching subgraph
-        matching_indices = self.get_matching_indices()
 
         # If the matching key is 'cx-x-cx', the replacement is a list of gates to be inserted in the circuit
         if self.matching_key == 'cx-x-cx':
+            # Retrieve indices of gates in the matching subgraph
+            matching_indices = self.get_matching_indices()
+
             transformed_qc = self._apply_cx_gate_cx_transformation(self.circuit, 
                                                                     self.replacement, 
                                                                     matching_indices)
@@ -1003,6 +982,9 @@ class ParallelZTransformation(CircuitTransformation, ParallelGatesMixin):
             if not self.matching_subgraph or random.choice([True, False]):
                 self.matching_subgraph = matching_parallel_z
                 self.matching_key = 'parallel-z'
+
+        print(f"Matching subgraph: {self.matching_subgraph}")
+        print(f"Matching key: {self.matching_key}")
         
         if not self.matching_subgraph:
             raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")

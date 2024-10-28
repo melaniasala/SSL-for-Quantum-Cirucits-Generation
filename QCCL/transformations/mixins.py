@@ -136,6 +136,146 @@ class ParallelGatesMixin:
             raise TransformationError(f"Unexpected gate data format: {gate_data}")
     
 
+class CommutationMixin:
+    """
+    A mixin providing helper methods for transformations with commutation.
+    """
+
+    def _commute(self, graph, matching_subgraph):
+        """
+        Commutes the gates in the matching subgraph.
+        """
+        # Check if there are exactly two gates in the matching subgraph
+        if self._count_gates(matching_subgraph) != 2:
+            raise TransformationError("Expected exactly two gates in the matching subgraph.")
+        
+        # Get predecessors and successors of the pattern
+        predecessors_successors = {}
+
+        # Iterate over each node in the matching subgraph
+        for node_label in matching_subgraph.keys():
+            # Get the qubit associated with this node
+            qubit = get_qubit(node_label)
+
+            # Initialize lists for predecessors and successors if not already done
+            if qubit not in predecessors_successors:
+                predecessors_successors[qubit] = {'predecessors': [], 'successors': []}
+
+            # Get the predecessor and successor of the node
+            predecessors_successors[qubit]['predecessors'].append(get_predecessor(graph, node_label))
+            predecessors_successors[qubit]['successors'].append(get_successor(graph, node_label))
+            
+        common_qubits = []
+
+        print(f"Predecessors and successors (before): {predecessors_successors}")
+
+        # Now remove the nodes in the matching subgraph from lists of predecessors and successors,
+        # retrieving the predecessor and successor of the pattern (should be exactly one for each qubit)
+        for qubit, preds_succs in predecessors_successors.items():
+            if preds_succs['predecessors'] is None or len(preds_succs['predecessors']) == 0:
+                raise TransformationError("Predecessor not found for qubit {qubit}.")
+            
+            # If there are multiple predecessors, remove the ones that are part of the matching subgraph.
+            # At the end, there should be exactly one predecessor.
+            if len(set(preds_succs['predecessors'])) > 1:
+                try:
+                    preds_succs['predecessors'] = [pred for pred in preds_succs['predecessors'] if pred not in matching_subgraph.keys()]
+                except ValueError:
+                    raise TransformationError("Even if there are multiple predecessors, none of them belong to the matching subgraph.")
+                if len(preds_succs['predecessors']) != 1:
+                    raise TransformationError("Commuting gates in the matching subgraph are not adjacent.")
+                print(f"Predecessors: {preds_succs['predecessors'][0]}")
+                predecessors_successors[qubit]['predecessors'] = preds_succs['predecessors'][0]
+                # Add the qubit to the list of common qubits, the ones which have 2 commuting nodes on them
+                common_qubits.append(qubit)
+                
+            # Do the same for successors
+            if preds_succs['successors'] is None or len(preds_succs['successors']) == 0:
+                raise TransformationError("Successor not found for qubit {qubit}.")
+            
+            if len(set(preds_succs['successors'])) > 1:
+                try:
+                    preds_succs['successors'] = [succ for succ in preds_succs['successors'] if succ not in matching_subgraph.keys()]
+                except ValueError:
+                    raise TransformationError("Even if there are multiple successors, none of them belong to the matching subgraph.")
+                if len(preds_succs['successors']) != 1:
+                    raise TransformationError("Commuting gates in the matching subgraph are not adjacent.")
+                print(f"Successors: {preds_succs['successors'][0]}")
+                predecessors_successors[qubit]['successors'] = preds_succs['successors'][0]
+                if qubit not in common_qubits:
+                    raise TransformationError("There is a mismatch in predecessors and successors of the matching subgraph: a non-common qubit has only one successor.")
+            else:
+                if qubit in common_qubits:
+                    raise TransformationError("There is a mismatch in predecessors and successors of the matching subgraph: a common qubit has only one successor.")
+   
+        print(f"Common qubits: {common_qubits}")
+        print(f"Predecessors and successors (after): {predecessors_successors}")
+
+        # Commute the gates, by modifying the edges in the graph
+        for qubit in common_qubits:
+            print(f"Handling common qubit: {qubit}")
+            # Get the gates acting on the qubit
+            gates = [node for node in matching_subgraph.keys() if get_qubit(node) == qubit]
+            print(f"Gates to be swapped: {gates}")
+            if len(gates) != 2:
+                raise TransformationError("Expected exactly two gates acting on the qubit.")
+            
+            # Check they act on the same qubit
+            if get_qubit(gates[0]) != get_qubit(gates[1]):
+                raise TransformationError("Gates to be commuted do not act on the same qubit.")
+            
+            predecessor = predecessors_successors[qubit]['predecessors']
+            successor = predecessors_successors[qubit]['successors']
+
+            print(f"Predecessor: {predecessor}, Successor: {successor} on the qubit")
+            print(f"First gate: {gates[0]}, Second gate: {gates[1]}")
+            
+            # Swap the gates
+            if (gates[0], gates[1]) in graph.edges:
+                self._reverse_edge_direction(graph, gates[0], gates[1])
+                if predecessor is not None:
+                    graph.remove_edge(predecessor, gates[0])
+                    graph.add_edge(predecessor, gates[1])
+
+                if successor is not None:
+                    graph.remove_edge(gates[1], successor)
+                    graph.add_edge(gates[0], successor)
+
+            else:
+                self._reverse_edge_direction(graph, gates[0], gates[1])
+                if predecessor is not None:
+                    graph.remove_edge(predecessor, gates[1])
+                    graph.add_edge(predecessor, gates[0])
+
+                if successor is not None:
+                    graph.remove_edge(gates[0], successor)
+                    graph.add_edge(gates[1], successor)
+
+
+    def _count_gates(self, matching_subgraph):
+        """
+        Counts the unique gates in the matching subgraph.
+        """
+        unique_gates = set()
+        
+        for gate in matching_subgraph.keys():
+            components = gate.split('_')
+            if components[0] == 'cx':
+                components = components[:1] + components[3:]
+            unique_gate = '_'.join(components)
+            unique_gates.add(unique_gate)
+        
+        return len(unique_gates)
+                
+    def _reverse_edge_direction(self, graph, u, v):
+        """
+        Changes the direction of an edge in the graph.
+        """
+        print(f"Swapping edge direction: {u} -> {v} to {v} -> {u}")
+        
+        graph.remove_edge(u, v)
+        graph.add_edge(v, u)
+        
 
 
 
