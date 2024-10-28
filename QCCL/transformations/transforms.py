@@ -257,7 +257,7 @@ class CommuteCNOTRotationTransformation(CircuitTransformation, CommutationMixin)
 
         transformed_graph = self.graph.copy()
         check_graph = self.graph.copy()
-        self._commute(transformed_graph, self.matching_subgraph)
+        self._commute_gates(transformed_graph, self.matching_subgraph)
 
         if transformed_graph == check_graph:
             raise TransformationError("Failed to apply the transformation: the graph was not modified.")
