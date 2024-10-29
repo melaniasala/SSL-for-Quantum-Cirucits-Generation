@@ -1,4 +1,6 @@
 from .transforms import AddIdentityGatesTransformation, RemoveIdentityGatesTransformation, SwapControlTargetTransformation, CNOTDecompositionTransformation, ChangeOfBasisTransformation, ParallelXTransformation, ParallelZTransformation, CommuteCNOTRotationTransformation, CommuteCNOTsTransformation, SwapCNOTsTransformation
+from .composite_transform import CompositeTransformation, RandomCompositeTransformation
+from .factory import TransformationFactory
 
 __all__ = [
     'AddIdentityGatesTransformation',
@@ -10,5 +12,9 @@ __all__ = [
     'ParallelZTransformation',
     'CommuteCNOTRotationTransformation',
     'CommuteCNOTsTransformation',
-    'SwapCNOTsTransformation'
+    'SwapCNOTsTransformation',
+
+    'CompositeTransformation',
+    'RandomCompositeTransformation',
+    'TransformationFactory'
 ]

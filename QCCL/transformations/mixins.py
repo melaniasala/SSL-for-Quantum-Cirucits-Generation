@@ -191,7 +191,6 @@ class CommutationMixin:
                 else:
                     pred_succ_map[qubit]['successors'].append(succ)
 
-            print(f"Node {node}: qubit={qubit}, predecessors={pred_succ_map[qubit]['predecessors']}, successors={pred_succ_map[qubit]['successors']}")
             qubits_count[qubit] += 1
 
         # Identify common qubits with multiple nodes in the subgraph
@@ -203,8 +202,6 @@ class CommutationMixin:
         for qubit in common_qubits:
             preds = pred_succ_map[qubit]['predecessors']
             succs = pred_succ_map[qubit]['successors']
-
-            print(f"Common qubit {qubit}: predecessors={preds}, successors={succs}")
     
             if (isinstance(preds, list) and len(preds) != 1) or (isinstance(succs, list) and len(succs) != 1):
                 raise TransformationError(f"Inconsistent predecessors or successors for common qubit {qubit}.")

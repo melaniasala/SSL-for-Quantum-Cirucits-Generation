@@ -115,19 +115,15 @@ class RemoveIdentityGatesTransformation(CircuitTransformation):
         try:
             # Get the list of current operations in the circuit
             operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
-            print(f"Current operations: {operations}")
 
             # Retrieve indices of gates in the matching subgraph
             matching_idxs = self.get_matching_indices()
-            print(f"Graph to circuit mapping: {self.graph_to_circuit_mapping}")
-            print(f"Matching indices: {matching_idxs}")
 
             # Remove the identity gates from the circuit
             transformed_operations = []
             for idx, op in enumerate(operations):
                 if idx not in matching_idxs:
                     transformed_operations.append(op)
-            print(f"Transformed operations: {transformed_operations}")
 
             # Create a new circuit with the transformed operations
             transformed_qc = QuantumCircuit(self.num_qubits)
@@ -337,8 +333,6 @@ class SwapControlTargetTransformation(CircuitTransformation):
 
             self.pattern_subgraph.append(('h-cx-h', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False)))
 
-            print(f"Pattern subgraph: {self.pattern_subgraph}")
-
         except Exception as e:
             raise TransformationError(f"Failed to create pattern: {e}")
 
@@ -476,7 +470,6 @@ class SwapControlTargetTransformation(CircuitTransformation):
             else:
                 raise TransformationError(f"Expected exactly one or five matching index for control-target swap, but got {len(matching_idxs)}: {matching_idxs}")
 
-            print(f"Transformed operations: {transformed_operations}")
             # Create a new circuit with the transformed operations
             transformed_qc = QuantumCircuit(self.num_qubits)
             for instruction in transformed_operations:
@@ -867,7 +860,6 @@ class CNOTDecompositionTransformation(CircuitTransformation):
             else:
                 raise TransformationError(f"Unexpected matching key for CNOT decomposition: {self.matching_key}")
 
-            print(f"Transformed operations: {transformed_operations}")
             # Create a new circuit with the transformed operations
             transformed_qc = QuantumCircuit(self.num_qubits)
             for instruction in transformed_operations:
@@ -948,8 +940,6 @@ class ChangeOfBasisTransformation(CircuitTransformation):
                     elif gate == 'Z':
                         replacement.append((ZGate(), [self.circuit.qubits[qubit]], []))
                         
-                
-                print(f"Replacement: {replacement}")
                 self.replacement = replacement
             else:
                 raise TransformationError(f"Unexpected matching key for change of basis: {self.matching_key}")
@@ -965,8 +955,6 @@ class ChangeOfBasisTransformation(CircuitTransformation):
         
             # Retrieve indices of gates in the matching subgraph
             matching_idxs = self.get_matching_indices()
-            print(f"Matching indices: {matching_idxs}")
-            print(f"Number of matching indices: {len(matching_idxs)}")
 
             # Get the list of current operations in the circuit
             operations = [(op.operation, op.qubits, op.clbits) for op in self.circuit.data]
@@ -992,7 +980,6 @@ class ChangeOfBasisTransformation(CircuitTransformation):
             else:
                 raise TransformationError(f"Expected 1, 2 or 3 matching indices for change of basis, but got {len(matching_idxs)}: {matching_idxs}")
 
-            print(f"Transformed operations: {transformed_operations}")
             # Create a new circuit with the transformed operations
             transformed_qc = QuantumCircuit(self.num_qubits)
             for instruction in transformed_operations:
@@ -1159,9 +1146,6 @@ class ParallelZTransformation(CircuitTransformation, ParallelGatesMixin):
             if not self.matching_subgraph or random.choice([True, False]):
                 self.matching_subgraph = matching_parallel_z
                 self.matching_key = 'parallel-z'
-
-        print(f"Matching subgraph: {self.matching_subgraph}")
-        print(f"Matching key: {self.matching_key}")
         
         if not self.matching_subgraph:
             raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")

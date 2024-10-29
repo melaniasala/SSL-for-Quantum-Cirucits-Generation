@@ -1,56 +1,98 @@
-import networkx as nx
-from .transforms import CircuitTransformation
+import random
+from .transforms import CircuitTransformation, NoMatchingSubgraphsError, TransformationError
+from Data.QuantumCircuitGraph import QuantumCircuitGraph
+from .factory import TransformationFactory
 
 class CompositeTransformation(CircuitTransformation):
-    """A composite transformation that applies multiple transformations in sequence."""
+    """Applies a sequence of transformations to a quantum circuit graph."""
 
-    def __init__(self, graph: nx.Graph):
-        super().__init__(graph)
-        self.transformations = []
-
-    def add_transformation(self, transformation: CircuitTransformation):
-        """Add a transformation to the composite."""
-        if isinstance(transformation, CircuitTransformation):
-            self.transformations.append(transformation)
-        else:
-            raise ValueError("Transformation must be an instance of CircuitTransformation")
+    def __init__(self, qcg: QuantumCircuitGraph, transformations: list[str]):
+        """
+        Initialize with a QuantumCircuitGraph and a list of transformation types.
+        
+        Parameters:
+        - qcg (QuantumCircuitGraph): The quantum circuit graph to transform.
+        - transformations (list of str): List of transformation types to apply sequentially.
+        """
+        super().__init__(qcg)
+        self.qcg = qcg # maybe this could be stored in the parent class... instead of separate circuit and graph
+        self.transformations = transformations
 
     def apply(self):
         """Apply all transformations in sequence."""
-        for transformation in self.transformations:
-            self.graph = transformation.apply()
+        transformed_qcg = self.qcg
+        for transformation_type in self.transformations:
+            # Get the transformation instance using the factory
+            transformation = TransformationFactory.create_transformation(transformation_type, transformed_qcg)
+            # Apply the transformation to the graph
+            try:
+                transformed_qcg = transformation.apply()
+            except (NoMatchingSubgraphsError, TransformationError) as e:
+                print(f"Skipping transformation '{transformation_type}' due to error: {e}")
+                continue  # Continue with the next transformation even if one fails
 
-        # After applying all, return the modified graph.
-        return self.graph
+        # Return the modified quantum circuit graph
+        return transformed_qcg
 
-# Usage Example:
-# if __name__ == "__main__":
-#     import networkx as nx
-#     from transformations.add_gate import AddGateTransformation
-#     from transformations.remove_gate import RemoveGateTransformation
 
-#     # Create a NetworkX graph representing a quantum circuit
-#     graph = nx.Graph()
-#     # Add nodes (representing qubits) and edges (representing gates) to the graph
-#     graph.add_node('q0')
-#     graph.add_node('q1')
-#     graph.add_edge('q0', 'H', qubit='q0')  # H gate on q0
-#     graph.add_edge('q1', 'X', qubit='q1')  # X gate on q1
-    
-#     # Create individual transformations
-#     add_gate_transformation = AddGateTransformation(graph)
-#     remove_gate_transformation = RemoveGateTransformation(graph)
-    
-#     # Create composite transformation
-#     composite = CompositeTransformation(graph)
-    
-#     # Add transformations to composite
-#     composite.add_transformation(add_gate_transformation)
-#     composite.add_transformation(remove_gate_transformation)
-    
-#     # Apply all transformations
-#     modified_graph = composite.apply()
-    
-#     print(modified_graph.nodes(data=True))
-#     print(modified_graph.edges(data=True))
+class RandomCompositeTransformation(CircuitTransformation):
+    """Applies a specified number of random transformations to a quantum circuit graph."""
+
+    def __init__(self, qcg: QuantumCircuitGraph, transformation_pool=None, num_transformations=2, max_trials=10):
+        """
+        Initialize with a QuantumCircuitGraph, a pool of transformation types, the number of transformations to apply, and a maximum number of trials.
+        
+        Parameters:
+        - qcg (QuantumCircuitGraph): The quantum circuit graph to transform.
+        - transformation_pool (list of str): List of available transformation types to choose from.
+        - num_transformations (int): Number of successful transformations to apply. Default is 2.
+        - max_trials (int): Maximum number of attempts to apply transformations. Default is 10.
+        """
+        super().__init__(qcg)
+        self.qcg = qcg
+        if transformation_pool is None:
+            transformation_pool = [
+                "add_identity", 
+                "remove_identity", 
+                "swap_ctrl_trgt", 
+                "cnot_decomp", 
+                "change_basis", 
+                "parallel_x", 
+                "parallel_z", 
+                "commute_cnot_rot", 
+                "commute_cnots", 
+                "swap_cnots"
+                ]
+        self.transformation_pool = transformation_pool
+        self.num_transformations = num_transformations
+        self.max_trials = max_trials
+
+    def apply(self):
+        """Apply a fixed number of random transformations in sequence."""
+        transformed_qcg = self.qcg
+        successful_transformations = 0
+        trials = 0
+
+        while successful_transformations < self.num_transformations and trials < self.max_trials:
+            # Randomly select a transformation type from the pool
+            transformation_type = random.choice(self.transformation_pool)
+            transformation = TransformationFactory.create_transformation(transformation_type, transformed_qcg)
+
+            try:
+                # Apply the transformation
+                transformed_qcg = transformation.apply()
+                successful_transformations += 1
+                self.transformation_pool.remove(transformation_type)  # Remove the transformation from the pool
+                print(f"Successfully applied transformation: {transformation_type}")
+            except (NoMatchingSubgraphsError, TransformationError) as e:
+                print(f"Failed to apply transformation '{transformation_type}' due to error: {e}")
+
+            trials += 1  # Increment the number of attempts
+
+        # if successful_transformations < self.num_transformations:
+        #     raise TransformationError(f"Only {successful_transformations} transformations were applied after {trials} trials.")
+
+        # Return the modified quantum circuit graph
+        return transformed_qcg
+
 

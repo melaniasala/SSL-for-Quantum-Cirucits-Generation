@@ -59,7 +59,6 @@ class CircuitTransformation:
             # shuffle the pattern subgraphs to avoid bias
             random.shuffle(self.pattern_subgraph)
             # iterate over all possible pattern subgraphs until a match is found; if not, raise NoMatchingSubgraphsError
-            print(f"Pattern subgraphs: {self.pattern_subgraph}")
             for key, subgraph in self.pattern_subgraph:
                 matcher = DiGraphMatcher(self.graph, subgraph, 
                                          node_match=lambda n1, n2: n1['type'] == n2['type'] and n1['ctrl_trgt'] == n2['ctrl_trgt'])
@@ -69,7 +68,6 @@ class CircuitTransformation:
 
                 # Shuffle the matching subgraphs to avoid bias and store a single match
                 random.shuffle(matching)
-                print(f"Matching key and subgraph(dict): {key}, {matching[0]}")
                 matching = self.graph.subgraph(matching[0].keys())
                 # matching_subgraphs is a list of dictionaries, where each dictionary maps nodes in the pattern to nodes in the graph (by node labels, graph_label:pattern_label)
                 
@@ -86,9 +84,6 @@ class CircuitTransformation:
             
             self.matching_subgraph = matching_subgraphs
             self.matching_key = matching_key
-
-            print(f"Matching subgraphs: {matching_subgraphs}")
-            print(f"Matching key: {matching_key}")
             
     def create_replacement(self):
         """Generate the replacement subgraph to be applied."""
@@ -114,8 +109,6 @@ class CircuitTransformation:
 
         # Initialize a graph node index tracker
         circuit_index = 0
-
-        print(f"Graph nodes: {self.graph.nodes}")
 
         for node in self.graph.nodes:
             if 'cx' in node:  # Handle CNOT nodes
