@@ -30,7 +30,7 @@ class ParallelGatesMixin:
                 if graph.nodes[gate1]['qubit'] != graph.nodes[gate2]['qubit']:
                     # Check if there's no directed path between gate1 and gate2 (passing through a CNOT)
                     if not nx.has_path(graph, gate1, gate2) and not nx.has_path(graph, gate2, gate1):
-                        return {gate1: gate1, gate2: gate2}
+                        return graph.subgraph([gate1, gate2])
 
         # If no parallel gates are found, return None
         return None
@@ -43,7 +43,7 @@ class ParallelGatesMixin:
         if matching_key == 'cx-' + self.gate_type + '-cx':
             control_qubit = None
             target_qubit = None
-            for node in matching_subgraph.keys():
+            for node in matching_subgraph.nodes:
                 if 'control' in node and control_qubit is None:
                     control_qubit = get_qubit(node)
                 elif 'target' in node and target_qubit is None:
@@ -53,7 +53,7 @@ class ParallelGatesMixin:
 
         # If matching key is a string in the format 'parallel-' + gate_type
         elif matching_key == 'parallel-' + self.gate_type:
-            nodes = list(matching_subgraph.keys())
+            nodes = list(matching_subgraph.nodes)
             control_qubit = get_qubit(nodes[0])
             target_qubit = get_qubit(nodes[1])
 
@@ -86,7 +86,7 @@ class ParallelGatesMixin:
         """
         Applies the transformation for parallel gates.
         """
-        gate_control, gate_target = matching_subgraph.keys()
+        gate_control, gate_target = matching_subgraph.nodes
          # Remove the parallel gates and set up predecessors/successors
         pred_control, succ_control, pred_target, succ_target = self._remove_parallel_gates_and_update_graph(graph, gate_control, gate_target)
         
@@ -163,22 +163,36 @@ class CommutationMixin:
         common_qubits = []
         qubits_count = {}
 
-        for node in subgraph.keys():
+        for node in subgraph.nodes:
             qubit = get_qubit(node)
-            if qubit not in pred_succ_map:
-                pred_succ_map[qubit] = {'predecessors': [], 'successors': []}
+            
             if qubit not in qubits_count:
                 qubits_count[qubit] = 0
-            qubits_count[qubit] += 1
 
-            # Collect predecessors and successors for each node on the qubit, excluding those in subgraph
+            if qubit not in pred_succ_map:
+                pred_succ_map[qubit] = {'predecessors': [], 'successors': []}
+            
+
             pred = get_predecessor(graph, node)
             succ = get_successor(graph, node)
 
-            if pred not in subgraph:
-                pred_succ_map[qubit]['predecessors'].append(pred)
-            if succ not in subgraph:
-                pred_succ_map[qubit]['successors'].append(succ)
+            if pred not in subgraph.nodes:
+                if not pred_succ_map[qubit]['predecessors']:
+                    pred_succ_map[qubit]['predecessors'] = pred
+                elif not isinstance(pred_succ_map[qubit]['predecessors'], list):
+                    pred_succ_map[qubit]['predecessors'] = [pred_succ_map[qubit]['predecessors']] + [pred]
+                else:
+                    pred_succ_map[qubit]['predecessors'].append(pred)
+            if succ not in subgraph.nodes:
+                if not pred_succ_map[qubit]['successors']:
+                    pred_succ_map[qubit]['successors'] = succ
+                elif not isinstance(pred_succ_map[qubit]['successors'], list):
+                    pred_succ_map[qubit]['successors'] = [pred_succ_map[qubit]['successors']] + [succ]
+                else:
+                    pred_succ_map[qubit]['successors'].append(succ)
+
+            print(f"Node {node}: qubit={qubit}, predecessors={pred_succ_map[qubit]['predecessors']}, successors={pred_succ_map[qubit]['successors']}")
+            qubits_count[qubit] += 1
 
         # Identify common qubits with multiple nodes in the subgraph
         for qubit, count in qubits_count.items():
@@ -189,8 +203,10 @@ class CommutationMixin:
         for qubit in common_qubits:
             preds = pred_succ_map[qubit]['predecessors']
             succs = pred_succ_map[qubit]['successors']
+
+            print(f"Common qubit {qubit}: predecessors={preds}, successors={succs}")
     
-            if len(preds) != 1 or len(succs) != 1:
+            if (isinstance(preds, list) and len(preds) != 1) or (isinstance(succs, list) and len(succs) != 1):
                 raise TransformationError(f"Inconsistent predecessors or successors for common qubit {qubit}.")
 
         return pred_succ_map, common_qubits
@@ -200,12 +216,12 @@ class CommutationMixin:
         Performs gate commutation on the specified qubits by modifying graph edges.
         """
         for qubit in common_qubits:
-            gates = [node for node in subgraph.keys() if get_qubit(node) == qubit]
+            gates = [node for node in subgraph.nodes if get_qubit(node) == qubit]
             if len(gates) != 2:
                 raise TransformationError(f"Expected exactly two gates on qubit {qubit} for commutation.")
             
-            pred = pred_succ_map[qubit]['predecessors'][0]
-            succ = pred_succ_map[qubit]['successors'][0]
+            pred = pred_succ_map[qubit]['predecessors']
+            succ = pred_succ_map[qubit]['successors']
             self._swap_edges(graph, gates[0], gates[1], pred, succ)
 
     def _swap_edges(self, graph, gate1, gate2, predecessor, successor):
@@ -234,7 +250,7 @@ class CommutationMixin:
         Counts the unique gate types in the subgraph based on gate name patterns.
         """
         unique_gates = set()
-        for gate in subgraph.keys():
+        for gate in subgraph.nodes:
             components = gate.split('_')
             unique_gates.add('_'.join(components[:1] + components[3:] if components[0] == 'cx' else components))
         return len(unique_gates)

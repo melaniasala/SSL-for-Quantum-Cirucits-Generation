@@ -48,12 +48,14 @@ class CircuitTransformation:
         """Generate the pattern to be found."""
         raise NotImplementedError("Subclasses must implement this method.")
 
-    def find_matching_subgraph(self):
+    def find_matching_subgraph(self, return_all=False):
         """Find matching subgraphs (pattern) in the graph."""
         if self.pattern_subgraph is None:
             # No pattern means transformation applies everywhere, no need to search
             return
         else:
+            matching_subgraphs = []
+            matching_key = []
             # shuffle the pattern subgraphs to avoid bias
             random.shuffle(self.pattern_subgraph)
             # iterate over all possible pattern subgraphs until a match is found; if not, raise NoMatchingSubgraphsError
@@ -61,24 +63,32 @@ class CircuitTransformation:
             for key, subgraph in self.pattern_subgraph:
                 matcher = DiGraphMatcher(self.graph, subgraph, 
                                          node_match=lambda n1, n2: n1['type'] == n2['type'] and n1['ctrl_trgt'] == n2['ctrl_trgt'])
-                matching_subgraphs = list(matcher.subgraph_isomorphisms_iter()) 
-                matching_key = key
+                matching = list(matcher.subgraph_isomorphisms_iter()) 
+                if not matching:
+                    continue
+
+                # Shuffle the matching subgraphs to avoid bias and store a single match
+                random.shuffle(matching)
+                print(f"Matching key and subgraph(dict): {key}, {matching[0]}")
+                matching = self.graph.subgraph(matching[0].keys())
                 # matching_subgraphs is a list of dictionaries, where each dictionary maps nodes in the pattern to nodes in the graph (by node labels, graph_label:pattern_label)
                 
-                if matching_subgraphs:
+                if matching and not return_all:
+                    matching_subgraphs = matching
+                    matching_key = key
                     break
+                else:
+                    matching_subgraphs.append(matching)
+                    matching_key.append(key)
             
-            print(f"Matching subgraphs: {matching_subgraphs}")
-            print(f"Matching key: {matching_key}")
-
             if not matching_subgraphs:
                 raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")
             
-            # Shuffle the matching subgraphs to avoid bias and store a single match
-            random.shuffle(matching_subgraphs)
-            print(f"Matching subgraph selected: {matching_subgraphs[0]}")
-            self.matching_subgraph = matching_subgraphs[0] 
+            self.matching_subgraph = matching_subgraphs
             self.matching_key = matching_key
+
+            print(f"Matching subgraphs: {matching_subgraphs}")
+            print(f"Matching key: {matching_key}")
             
     def create_replacement(self):
         """Generate the replacement subgraph to be applied."""
@@ -95,7 +105,7 @@ class CircuitTransformation:
         
         if not self.graph_to_circuit_mapping:
             self.compute_graph_to_circuit_mapping()
-        matching_idxs = [self.graph_to_circuit_mapping[node] for node in self.matching_subgraph.keys()]
+        matching_idxs = [self.graph_to_circuit_mapping[node] for node in self.matching_subgraph.nodes]
         # retrieve unique indices
         return list(set(matching_idxs))
     
@@ -127,3 +137,8 @@ class CircuitTransformation:
 
 def get_qubit(node_label):
     return int(node_label.split('_')[1])
+
+def get_role(node_label):
+    if 'cx' not in node_label:
+        raise ValueError("Canot get role for non-CNOT nodes.")
+    return node_label.split('_')[2]

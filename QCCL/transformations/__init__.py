@@ -1,4 +1,4 @@
-from .transforms import AddIdentityGatesTransformation, RemoveIdentityGatesTransformation, SwapControlTargetTransformation, CNOTDecompositionTransformation, ChangeOfBasisTransformation, ParallelXTransformation, ParallelZTransformation, CommuteCNOTRotationTransformation, CommuteCNOTsTransformation
+from .transforms import AddIdentityGatesTransformation, RemoveIdentityGatesTransformation, SwapControlTargetTransformation, CNOTDecompositionTransformation, ChangeOfBasisTransformation, ParallelXTransformation, ParallelZTransformation, CommuteCNOTRotationTransformation, CommuteCNOTsTransformation, SwapCNOTsTransformation
 
 __all__ = [
     'AddIdentityGatesTransformation',
@@ -9,5 +9,6 @@ __all__ = [
     'ParallelXTransformation',
     'ParallelZTransformation',
     'CommuteCNOTRotationTransformation',
-    'CommuteCNOTsTransformation'
+    'CommuteCNOTsTransformation',
+    'SwapCNOTsTransformation'
 ]
