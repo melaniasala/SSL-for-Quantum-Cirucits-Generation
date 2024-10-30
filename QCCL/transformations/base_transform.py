@@ -125,6 +125,26 @@ class CircuitTransformation:
 
         self.graph_to_circuit_mapping = graph_to_circuit_mapping
 
+    def _add_transformed_operations(self, transformed_qc, operations, original_qubits):
+        """
+        Adds operations to the transformed circuit, mapping qubits from the original circuit.
+        
+        Args:
+            transformed_qc (QuantumCircuit): The circuit to which operations will be added.
+            operations (list): A list of operations, where each operation is a tuple of
+                            (instruction, qubits, clbits) as in (op, qargs, cargs).
+            original_qubits (list): The list of qubits in the original circuit.
+        """
+        # Create a mapping from original qubits to the new circuit's qubits
+        qubit_mapping = {q: transformed_qc.qubits[i] for i, q in enumerate(original_qubits)}
+        
+        for instruction in operations:
+            inst, qargs, cargs = instruction
+            # Map qubits to the new circuit's qubits
+            new_qargs = [qubit_mapping[q] for q in qargs]
+            new_cargs = cargs  # Map cargs if necessary, if using classical bits in your operations
+            transformed_qc.append(inst, new_qargs, new_cargs)
+
 
 # --- Helper functions --- #
 

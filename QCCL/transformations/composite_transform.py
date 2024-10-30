@@ -1,4 +1,5 @@
 import random
+import traceback
 from .transforms import CircuitTransformation, NoMatchingSubgraphsError, TransformationError
 from Data.QuantumCircuitGraph import QuantumCircuitGraph
 from .factory import TransformationFactory
@@ -83,9 +84,14 @@ class RandomCompositeTransformation(CircuitTransformation):
                 transformed_qcg = transformation.apply()
                 successful_transformations += 1
                 self.transformation_pool.remove(transformation_type)  # Remove the transformation from the pool
-                print(f"Successfully applied transformation: {transformation_type}")
-            except (NoMatchingSubgraphsError, TransformationError) as e:
+            except NoMatchingSubgraphsError:
+                # Print message and continue to the next trial
+                print(f"No matching subgraph found for transformation '{transformation_type}'. Trying witgh another transformation...")
+            except TransformationError as e:
+                # Print detailed error information and stop computation
                 print(f"Failed to apply transformation '{transformation_type}' due to error: {e}")
+                traceback.print_exc()  # Print the full traceback including file and line number
+                raise  # Re-raise the exception to halt the execution
 
             trials += 1  # Increment the number of attempts
 

@@ -77,8 +77,8 @@ class ParallelGatesMixin:
                 transformed_operations.append(op)
         
         transformed_qc = QuantumCircuit(circuit.num_qubits)
-        for inst, qargs, cargs in transformed_operations:
-            transformed_qc.append(inst, qargs, cargs)
+        
+        self._add_transformed_operations(transformed_qc, transformed_operations, circuit.qubits)
         
         return transformed_qc
     

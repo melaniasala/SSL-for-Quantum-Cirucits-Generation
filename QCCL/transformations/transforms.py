@@ -62,9 +62,8 @@ class AddIdentityGatesTransformation(CircuitTransformation):
 
             # Create a new circuit with the transformed operations
             transformed_qc = QuantumCircuit(self.num_qubits)
-            for instruction in transformed_operations:
-                inst, qargs, cargs = instruction
-                transformed_qc.append(inst, qargs, cargs)
+
+            self._add_transformed_operations(transformed_qc, transformed_operations, self.circuit.qubits)
 
             # Return the new circuit graph representation
             return QuantumCircuitGraph(transformed_qc)
@@ -124,12 +123,13 @@ class RemoveIdentityGatesTransformation(CircuitTransformation):
             for idx, op in enumerate(operations):
                 if idx not in matching_idxs:
                     transformed_operations.append(op)
+            # print(f"Transformed operations: {transformed_operations}")
 
             # Create a new circuit with the transformed operations
             transformed_qc = QuantumCircuit(self.num_qubits)
-            for instruction in transformed_operations:
-                inst, qargs, cargs = instruction    
-                transformed_qc.append(inst, qargs, cargs)
+            # print(f"List of qubits in the circuit: {transformed_qc.qubits}")
+
+            self._add_transformed_operations(transformed_qc, transformed_operations, self.circuit.qubits)
 
             # Return the new circuit graph representation
             return QuantumCircuitGraph(transformed_qc)
@@ -472,9 +472,8 @@ class SwapControlTargetTransformation(CircuitTransformation):
 
             # Create a new circuit with the transformed operations
             transformed_qc = QuantumCircuit(self.num_qubits)
-            for instruction in transformed_operations:
-                inst, qargs, cargs = instruction
-                transformed_qc.append(inst, qargs, cargs)
+           
+            self._add_transformed_operations(transformed_qc, transformed_operations, self.circuit.qubits)
 
             # Return the new circuit graph representation
             return QuantumCircuitGraph(transformed_qc)
@@ -862,9 +861,8 @@ class CNOTDecompositionTransformation(CircuitTransformation):
 
             # Create a new circuit with the transformed operations
             transformed_qc = QuantumCircuit(self.num_qubits)
-            for instruction in transformed_operations:
-                inst, qargs, cargs = instruction
-                transformed_qc.append(inst, qargs, cargs)
+            
+            self._add_transformed_operations(transformed_qc, transformed_operations, self.circuit.qubits)
 
             # Return the new circuit graph representation
             return QuantumCircuitGraph(transformed_qc)
@@ -982,9 +980,8 @@ class ChangeOfBasisTransformation(CircuitTransformation):
 
             # Create a new circuit with the transformed operations
             transformed_qc = QuantumCircuit(self.num_qubits)
-            for instruction in transformed_operations:
-                inst, qargs, cargs = instruction
-                transformed_qc.append(inst, qargs, cargs)
+            
+            self._add_transformed_operations(transformed_qc, transformed_operations, self.circuit.qubits)
 
             # Return the new circuit graph representation
             return QuantumCircuitGraph(transformed_qc)
