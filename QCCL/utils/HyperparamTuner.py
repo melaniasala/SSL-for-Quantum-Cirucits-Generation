@@ -252,7 +252,7 @@ class HyperparamTuner:
         optuna.logging.set_verbosity(optuna.logging.WARNING)
 
         print("\nLoading dataset...")
-        X, _ = load_data()
+        X, _ = load_data(file_name=dataset_name)
         print(f"Dataset {dataset_name} loaded successfully.")
 
         # Split the dataset
