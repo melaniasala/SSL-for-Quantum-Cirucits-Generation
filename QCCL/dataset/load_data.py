@@ -3,8 +3,6 @@ import sys
 import pickle
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../Data')))
 
-from Data.QuantumCircuitGraph import QuantumCircuitGraph
-
 
 def load_data(data_dir='../dataset/raw/', file_name='handcrafted_dataset.pkl', subset=None, split_circuit_graph=False):
     file_path = os.path.join(data_dir, file_name)
