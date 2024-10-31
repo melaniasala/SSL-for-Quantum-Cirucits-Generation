@@ -11,7 +11,7 @@ from sklearn.metrics import accuracy_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from QCCL.Data import GraphDataset, from_nx_to_geometric, load_graphs
+from QCCL.dataset import GraphDataset, from_nx_to_geometric, load_data
 from QCCL.Models import BYOLOnlineNet, BYOLTargetNet, BYOLWrapper, GCNFeatureExtractor, SimCLRWrapper
 
 from . import NTXentLoss, train, train_byol
@@ -90,13 +90,13 @@ class HyperparamTuner:
 
         train_size = self.experiment_configs["train_size"]
         val_size = self.experiment_configs["val_size"]
-        composite_transforms_size = self.experiment_configs[
-            "composite_transforms_size"
-        ]
+        # composite_transforms_size = self.experiment_configs[
+        #     "composite_transforms_size"
+        # ]
 
         total_size = len(X)
         print(f"Total dataset size: {total_size}")
-        print(f"Composite transformations size: {composite_transforms_size}")
+        # print(f"Composite transformations size: {composite_transforms_size}")
 
         test_size = 1.0 - train_size - val_size
         test_size = int(test_size * total_size)
@@ -107,41 +107,44 @@ class HyperparamTuner:
             f"Splitting into {train_size} training, {val_size} validation, and {test_size} test circuits..."
         )
 
-        composite_circuits = X[
-            -composite_transforms_size:
-        ]  # Last n circuits (composite transformations)
-        single_transform_circuits = X[
-            :-composite_transforms_size
-        ]  # Remaining circuits (single transformations)
+        # composite_circuits = X[
+        #     -composite_transforms_size:
+        # ]  # Last n circuits (composite transformations)
+        # single_transform_circuits = X[
+        #     :-composite_transforms_size
+        # ]  # Remaining circuits (single transformations)
 
-        # Shuffle and split
-        shuffling_mask = np.random.permutation(len(composite_circuits))
-        composite_circuits = [composite_circuits[i] for i in shuffling_mask]
+        # # Shuffle and split
+        # shuffling_mask = np.random.permutation(len(composite_circuits))
+        # composite_circuits = [composite_circuits[i] for i in shuffling_mask]
 
-        val_data = composite_circuits[:val_size]
-        remaining_composite = composite_circuits[
-            min(val_size, composite_transforms_size) :
-        ]
+        # val_data = composite_circuits[:val_size]
+        # remaining_composite = composite_circuits[
+        #     min(val_size, composite_transforms_size) :
+        # ]
 
-        test_data = remaining_composite[: min(test_size, len(remaining_composite))]
-        if (
-            len(test_data) < test_size
-        ):  # If not enough composite circuits, take from single transformation circuits
-            print(
-                "Not enough composite circuits for test set, adding single transformation circuits..."
-            )
-            additional_test_data = single_transform_circuits[
-                : (test_size - len(test_data))
-            ]
-            test_data = test_data + additional_test_data
+        # test_data = remaining_composite[: min(test_size, len(remaining_composite))]
+        # if (
+        #     len(test_data) < test_size
+        # ):  # If not enough composite circuits, take from single transformation circuits
+        #     print(
+        #         "Not enough composite circuits for test set, adding single transformation circuits..."
+        #     )
+        #     additional_test_data = single_transform_circuits[
+        #         : (test_size - len(test_data))
+        #     ]
+        #     test_data = test_data + additional_test_data
 
-        remaining_composite = remaining_composite[
-            min(test_size, len(remaining_composite)) :
-        ]
-        remaining_single = single_transform_circuits[(test_size - len(test_data)) :]
-        train_data = remaining_single + remaining_composite
-        shuffling_mask = np.random.permutation(len(train_data))
-        train_data = [train_data[i] for i in shuffling_mask]
+        # remaining_composite = remaining_composite[
+        #     min(test_size, len(remaining_composite)) :
+        # ]
+        # remaining_single = single_transform_circuits[(test_size - len(test_data)) :]
+        # train_data = remaining_single + remaining_composite
+        # shuffling_mask = np.random.permutation(len(train_data))
+        # train_data = [train_data[i] for i in shuffling_mask]
+
+        train_data, test_data = train_test_split(X, train_size=train_size, shuffle=True)
+        val_data, test_data = train_test_split(test_data, train_size=val_size, shuffle=True)
 
         if self.n_splits is None:
             print("Using standard train/val split...")
@@ -243,14 +246,14 @@ class HyperparamTuner:
             )
             return avg_val_loss
 
-    def run_experiment(self, n_trials=100):
+    def run_experiment(self, n_trials=100, dataset_name='dataset_90.pkl'):
         global X_train, X_val, input_dim, folds
 
         optuna.logging.set_verbosity(optuna.logging.WARNING)
 
         print("\nLoading dataset...")
-        X, _ = load_graphs()
-        print("Dataset loaded successfully.")
+        X, _ = load_data()
+        print(f"Dataset {dataset_name} loaded successfully.")
 
         # Split the dataset
         data_train, data_val, data_test, folds = self.split_dataset(X)

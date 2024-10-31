@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from torch.nn import MSELoss, CosineSimilarity
+from torch.nn import MSELoss
 from torch.optim import Adam
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
@@ -14,6 +14,7 @@ def validate(model, val_loader, loss_fun, device='cuda'):
     with torch.no_grad():
         for graph1, graph2 in val_loader:
             graph1, graph2 = graph1.to(device), graph2.to(device)
+            # print("Graphs collected for validation.")
 
             # if model class is BYOLWrapper
             if model.__class__.__name__ == 'BYOLWrapper':
@@ -26,9 +27,11 @@ def validate(model, val_loader, loss_fun, device='cuda'):
             else:
                 z1 = model(graph1)
                 z2 = model(graph2)
+                
                 loss = loss_fun(z1, z2)
 
             total_loss += loss.item()
+            # print("Loss added to total validation loss.")
     return total_loss / len(val_loader)
 
 
@@ -36,10 +39,12 @@ def validate(model, val_loader, loss_fun, device='cuda'):
 def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=1e-3, tau=0.5, device='cuda', 
           ema_alpha=1.0, patience=None, restore_best=False, verbose=True):
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    # print("Train loader created.")
     optimizer = Adam(model.parameters(), lr=lr)
     nt_xent_loss = NTXentLoss(tau)
     ema_loss = False if ema_alpha == 1.0 else True
 
+    print("Starting training...")
     history = {
         'train_loss': [], 
         'val_loss': [] if val_dataset is not None else None,
@@ -51,6 +56,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
 
     if val_dataset:
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        # print("Validation loader created.")
 
     # Initialize variables for early stopping
     if patience is None or patience == 'None':
@@ -62,6 +68,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
     best_model_state = None  
     
     def train_step():
+        # print("Training step started.")
         # for each epoch
         model.train()
         total_loss = 0
@@ -74,14 +81,21 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
         for graph1, graph2 in train_loader: # for each batch
             graph1, graph2 = graph1.to(device), graph2.to(device)
 
+            # print("Collected graphs")
+
             optimizer.zero_grad()
+
+            # print("Optimizer zeroed")
 
             z1 = model(graph1)
             z2 = model(graph2)
 
+            # print("Model forward pass done")
+
             # compute loss
             loss = nt_xent_loss(z1, z2, return_scores=False)
             loss.backward()
+            # print("Loss backward pass done")
 
             # compute gradient norm (L2 norm)
             grad_norm_l2 = 0
@@ -94,18 +108,25 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
             total_grad_norm_l1 += grad_norm_l1
 
             optimizer.step()
+            # print("Optimizer step done")
 
             total_loss += loss.item()
+            # print("Loss added to total loss")
 
         total_grad_norm_l2 = np.sqrt(total_grad_norm_l2)
         avg_grad_norm_l1_per_param = total_grad_norm_l1 / num_params_model
         history['grad_norm_l2'].append(total_grad_norm_l2)
         history['avg_grad_norm_l1_per_param'].append(avg_grad_norm_l1_per_param)
 
+        # print("Training step done.")
+
         return total_loss / len(train_loader)
     
     def validate_step():
-        return validate(model, val_loader, nt_xent_loss, device)
+        # print("Validation step started.")
+        v=validate(model, val_loader, nt_xent_loss, device)
+        # print("Validation step done.")
+        return v
     
     def update_history():
         history['train_loss'].append(total_train_loss)
@@ -117,11 +138,12 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
                 prev_ema = history['ema_val_loss'][-1] if history['ema_val_loss'] else val_loss
                 ema_val_loss = ema_alpha * val_loss + (1.0 - ema_alpha) * prev_ema
                 history['ema_val_loss'].append(ema_val_loss)
-        
+        # print("History updated")
         return
 
     if verbose:
         for epoch in range(epochs):
+            # print(f"Epoch {epoch+1}/{epochs}")
             with tqdm(total=len(train_loader), desc=f"Epoch {epoch+1}/{epochs}", unit='batch', disable=not verbose) as pbar:
                 total_train_loss = train_step()
                 pbar.update(1)
@@ -202,7 +224,7 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
     ema_loss = False if ema_alpha == 1.0 else True
     print("EMA Loss: ", ema_loss)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    optimizer = Adam(online_model.parameters(), lr=lr)
+    optimizer = Adam(online_model.parameters(), lr=lr, weight_decay=1e-1)
     mse_loss = MSELoss()
     # cosine_similarity = CosineSimilarity()
     # mse_loss = lambda x, y: torch.mean(1 - cosine_similarity(x, y))
@@ -210,7 +232,8 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
 
     history = {
         'train_loss': [], 
-        'val_loss': [] if val_dataset is not None else None
+        'val_loss': [] if val_dataset is not None else None,
+        'params_norm': {} # Track the L2 norm of the model parameters here
     }
     if ema_loss:
         history['ema_val_loss'] = []
@@ -291,7 +314,11 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
                 ema_val_loss = ema_alpha * val_loss + (1.0 - ema_alpha) * prev_ema
                 history['ema_val_loss'].append(ema_val_loss)
         
-        return
+        for name, param in online_model.named_parameters():
+            param_norm = param.norm(2).item()
+            if name not in history['params_norm']:
+                history['params_norm'][name] = []
+            history['params_norm'][name].append(param_norm)
     
     if verbose:
         for epoch in range(epochs):

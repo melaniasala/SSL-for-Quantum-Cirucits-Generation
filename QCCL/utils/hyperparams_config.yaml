@@ -4,12 +4,12 @@ learning_rate:
   type: loguniform
   default: 1e-3
 n_layers:
-  range: [2, 10]
+  range: [2, 25]
   tune: true
   type: int
   default: 5
 batch_size:
-  choices: [4, 8, 12]
+  choices: [4, 8, 16, 32]
   tune: true
   type: categorical
   default: 11
@@ -19,9 +19,9 @@ patience:
   type: int
   default: None # None means no early stopping
 projection_size:
-  range: [2, 8]
+  range: [2**4, 2**20]
   tune: true
-  type: int
+  type: loguniform
   default: 12
 tau: # temperature parameter for contrastive loss in SimCLR, target decay rate in BYOL
   range: [0.01, 1.0]
@@ -29,7 +29,7 @@ tau: # temperature parameter for contrastive loss in SimCLR, target decay rate i
   type: loguniform
   default: 0.996
 epochs:
-  range: [50, 2500]
+  range: [50, 2000]
   tune: true
   type: int
   default: 2500
