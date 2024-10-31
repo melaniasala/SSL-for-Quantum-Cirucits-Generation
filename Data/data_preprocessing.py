@@ -119,7 +119,7 @@ def extract_circuit_gates(circuit):
 
 
 
-def build_graph_from_circuit(circuit, gate_type_map, include_params=False, include_id_gates=False, diff_cx=False, data=True):
+def build_graph_from_circuit(circuit, gate_type_map, include_params=False, include_id_gates=False, diff_cx=True, data=True):
     """
     Constructs a NetworkX graph representation from the QuantumCircuit.
 
@@ -152,7 +152,7 @@ def build_graph_from_circuit(circuit, gate_type_map, include_params=False, inclu
         return graph
 
 
-def process_gate(gate, gate_type_map, node_id=None, include_params=False, include_id_gates=False, diff_cx=False):
+def process_gate(gate, gate_type_map, node_id=None, include_params=False, include_id_gates=False, diff_cx=True):
     """
     Process a quantum gate and return data necessary to add a node to the graph.
 
@@ -269,7 +269,6 @@ def insert_node(graph, node_data, pred_succ=None, last_nodes=None):
         if pred_succ:
             pred_ctrl, succ_ctrl = pred_succ[0]
             pred_trgt, succ_trgt = pred_succ[1]
-            print(f"Pred_ctrl: {pred_ctrl}, Succ_ctrl: {succ_ctrl}, Pred_trgt: {pred_trgt}, Succ_trgt: {succ_trgt}")
 
             # Handle control node connections if valid predecessors/successors are present
             if pred_ctrl is not None:
@@ -351,7 +350,7 @@ def insert_node(graph, node_data, pred_succ=None, last_nodes=None):
     return gate_as_nodes
 
 
-def build_node_features_vector(gate_type, node_id, gate_type_map, include_params=False, params=None, include_identity_gates=False, differentiate_cx=False):
+def build_node_features_vector(gate_type, node_id, gate_type_map, include_params=False, params=None, include_identity_gates=False, differentiate_cx=True):
         """
         Creates a feature vector for a quantum gate.
 
@@ -487,126 +486,100 @@ def draw_circuit_and_graph(circuit_graph_tuple, axs=None):
 
 def build_circuit_from_graph(graph):
     """
-    Builds a Qiskit QuantumCircuit from a NetworkX graph.
-    
-    Parameters:
-    graph (nx.Graph): A NetworkX graph representing a quantum circuit.
-    
-    Returns:
-    QuantumCircuit: A Qiskit QuantumCircuit object.
-    """
-    # Initialize a QuantumCircuit object
-    qubits = set([graph.nodes[node]['qubit'] for node in graph.nodes()])
-    n_qubits = len(qubits)
-    quantum_circuit = QuantumCircuit(n_qubits)
+    Constructs a Qiskit QuantumCircuit from a NetworkX graph representation.
 
-    gate_pool = {
+    Parameters:
+    graph (nx.Graph): A NetworkX graph where nodes represent gates in a quantum circuit.
+
+    Returns:
+    QuantumCircuit: The corresponding Qiskit QuantumCircuit object.
+    """
+    # print("Constructing QuantumCircuit from graph...")
+    
+    # Identify unique qubits and initialize QuantumCircuit
+    qubits = {graph.nodes[node]['qubit'] for node in graph.nodes()}
+    quantum_circuit = QuantumCircuit(len(qubits))
+
+    gate_library = {
         'h': HGate(),
         'x': XGate(),
         'z': ZGate(),
         't': TGate(),
         'cx': CXGate()
     }
-    # Find input nodes (nodes with no predecessor)
-    input_nodes = [node for node in graph.nodes() if get_predecessor(graph, node) is None]
-    input_nodes.sort(key=lambda x: graph.nodes[x]['qubit'])
 
-    # Check if the number of input nodes is equal to the number of qubits
-    if len(input_nodes) != quantum_circuit.num_qubits:
-        raise ValueError(f"Number of input nodes {len(input_nodes)} does not match the number of qubits in the circuit {quantum_circuit.num_qubits}")
+   # Identify starting nodes for each qubit
+    starting_nodes = [node for node in graph.nodes if get_predecessor(graph, node) is None]
+    starting_nodes.sort(key=lambda node: graph.nodes[node]['qubit'])
+
+    # Validation for matching qubit counts
+    if len(starting_nodes) != quantum_circuit.num_qubits:
+        raise ValueError(f"Mismatch: {len(starting_nodes)} starting nodes vs. {quantum_circuit.num_qubits} qubits in the circuit.")
     
-    # Initialize the last nodes dictionary, mapping each qubit to its last node added to the QuantumCircuit
-    last_nodes = {graph.nodes[input_node]['qubit']: input_node for input_node in input_nodes}
-    
-    # Until all nodes are visited, that is until all last gates are None
-    while any(last_nodes.values()):
-    # For every input node (qubit), add gates to the QuantumCircuit until a cx gate is encountered
-        for qubit, node in last_nodes.items():
+    frontier = {graph.nodes[node]['qubit']: node for node in starting_nodes}
+
+    max_iterations = 1000  # To prevent infinite loops
+    iterations = 0
+
+    # Iteratively add gates to the QuantumCircuit
+    while any(frontier.values()):
+        iterations += 1
+        if iterations > max_iterations:
+            # print("Breaking loop due to max iteration limit.\nLast qubits: ", frontier)
+            break
+
+        # print(f"Last node by qubit: {frontier}")
+        for qubit, node in frontier.items():
             current_node = node
-            
-            while True:
-                # Break if the current node is None (i.e., no successor)
-                if current_node is None:
-                    break
-
-                # Get the node data
-                node_data = graph.nodes[current_node]
-                gate_type = node_data['type']
-                qubit = node_data['qubit']
+            # print(f"Current node: {current_node}, qubit: {qubit}")
+            while current_node is not None:
+                gate_info = graph.nodes[current_node]
+                gate_type = gate_info['type']
                 
-                # Add the gate to the QuantumCircuit
-                if gate_type == 'cx': # move to next input node
+                if gate_type == 'cx':
                     break
                 else:
-                    quantum_circuit.append(gate_pool[gate_type], [qubit], [])
-                    print(f"Added {gate_type} gate to qubit {qubit}")
-
-                # Move to the next node
+                    # print(f"Adding gate: {gate_type} on qubit {qubit}")
+                    quantum_circuit.append(gate_library[gate_type], [qubit], [])
                 current_node = get_successor(graph, current_node)
-                last_nodes[qubit] = current_node
+                frontier[qubit] = current_node
 
-        # Now process the cx gates (if any)
-        frontier = last_nodes.copy()
-    
-        while frontier:
-            print(f"Frontier: {frontier}")
-            # Get the next node in the frontier
-            qubit, node = frontier.popitem()
-         
-            if node is not None:
-                # If current node is a single-qubit gate, raise an error
-                if graph.nodes[node]['type'] != 'cx':
-                    raise ValueError("Expected a cx gate (or None) but found a single-qubit gate.")
+        # Process controlled gates (cx)
+        frontier = frontier.copy()
+        change = True
+
+        while change:  
+            change = False      
+            for i in range(quantum_circuit.num_qubits):
+                current_node = frontier[i]
+                # print(f"Frontier: {frontier}")
             
-                current_node = node
-                
-                # Understand if the current node is the control or target qubit
-                ctrl_trgt = graph.nodes[current_node]['ctrl_trgt']
-                if ctrl_trgt == 'control':
-                    control_node = current_node
-                    control_successor = get_successor(graph, control_node)
-
-                    # Look for the target node
-                    for succ in graph.successors(current_node):
-                        if succ != control_successor:
-                            target_node = succ
+                if current_node and graph.nodes[current_node]['type'] == 'cx':
+                    ctrl_trgt = graph.nodes[current_node]['ctrl_trgt']
+                    control_node, target_node = (current_node, None) if ctrl_trgt == 'control' else (None, current_node)
+                    
+                    # Determine control and target nodes
+                    for successor in graph.successors(current_node):
+                        if successor != get_successor(graph, current_node):
+                            if ctrl_trgt == 'control':
+                                target_node = successor
+                            else:
+                                control_node = successor
                             break
+                    # print(f"Successor of node {current_node}: {successor}")
 
-                    # If target node is not in the frontier, move to the next frontier node
-                    if target_node not in frontier.values():
-                        continue
-                
-                    target_successor = get_successor(graph, target_node)
+                    if target_node in frontier.values() and control_node in frontier.values():
+                        # print(f"Adding CNOT gate on qubits {graph.nodes[control_node]['qubit']} and {graph.nodes[target_node]['qubit']}")
+                        quantum_circuit.append(gate_library['cx'], [graph.nodes[control_node]['qubit'], graph.nodes[target_node]['qubit']], [])
 
-                else:  # current node is the target qubit
-                    target_node = current_node
-                    target_successor = get_successor(graph, target_node)
-
-                    # Look for the control node
-                    for succ in graph.successors(current_node):
-                        if succ != target_successor:
-                            control_node = succ
-                            break
-
-                    # If control node is not in the frontier, move to the next frontier node
-                    if control_node not in frontier.values():
-                        continue
-
-                    control_successor = get_successor(graph, control_node)
-
-                # Add the cx gate to the QuantumCircuit
-                quantum_circuit.append(gate_pool['cx'], [graph.nodes[control_node]['qubit'], graph.nodes[target_node]['qubit']], [])
-
-                # Remove the two nodes from the frontier (if they are in it)
-                if control_node in frontier.values():
-                    frontier.pop(graph.nodes[control_node]['qubit'])
-                if target_node in frontier.values():
-                    frontier.pop(graph.nodes[target_node]['qubit'])      
-
-                # Update the last nodes
-                last_nodes[graph.nodes[control_node]['qubit']] = control_successor
-                last_nodes[graph.nodes[target_node]['qubit']] = target_successor
-
+                        # Update last processed nodes
+                        frontier[graph.nodes[control_node]['qubit']] = get_successor(graph, control_node)
+                        frontier[graph.nodes[target_node]['qubit']] = get_successor(graph, target_node)
+                        # frontier.pop(graph.nodes[control_node]['qubit'], None)
+                        # frontier.pop(graph.nodes[target_node]['qubit'], None)
+                        change = True
+    
+    # print("QuantumCircuit construction complete.")
     return quantum_circuit
 
 
@@ -638,5 +611,6 @@ def get_successor(graph, node):
     """
     for succ in graph.successors(node):
         if not graph.has_edge(succ, node):
+            # print(f"Node {node} successor: {succ}")
             return succ
     return None
