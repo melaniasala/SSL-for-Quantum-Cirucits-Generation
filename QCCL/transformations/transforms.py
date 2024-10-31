@@ -168,6 +168,25 @@ class CommuteCNOTsTransformation(CircuitTransformation, CommutationMixin):
 
         self.pattern_subgraph.append(('target', build_graph_from_circuit(pattern_subcircuit, self.gate_type_map, data=False)))
 
+        # print(f"Patterns created for transformation {self.__class__.__name__}.")
+
+    def find_matching_subgraph(self):
+        """Identify all subgraphs in the circuit that match CNOT swap patterns and verify non-shared qubits."""
+        super().find_matching_subgraph(return_all=True)
+        self._shuffle_matches()
+
+        # print(f"Matching subgraphs found for transformation {self.__class__.__name__}: {self.matching_subgraph}, {self.matching_key}.")
+        
+        for subgraph, key in zip(self.matching_subgraph, self.matching_key):
+            if self._check_shared_qubits(subgraph):
+                self.matching_subgraph, self.matching_key = subgraph, key
+                break
+        
+        if not self.matching_subgraph:
+            raise NoMatchingSubgraphsError("No valid subgraphs found for the CNOT swap transformation.")
+        
+        # print(f"Found matching subgraph for transformation {self.__class__.__name__}.")
+
     def create_replacement(self):
         pass
 
@@ -179,14 +198,41 @@ class CommuteCNOTsTransformation(CircuitTransformation, CommutationMixin):
         if not self.matching_key:
             raise TransformationError("No matching key found for the CNOTs commutation transformation.")
 
+        # print(f"Applying transformation {self.__class__.__name__}.")
         transformed_graph = self.graph.copy()
         check_graph = self.graph.copy()
+        # print(f"Commute gates: {self.matching_subgraph}.")
         self._commute_gates(transformed_graph, self.matching_subgraph)
+        # print(f"Transformation {self.__class__.__name__} applied successfully.")
+
 
         if transformed_graph == check_graph:
             raise TransformationError("Failed to apply the transformation: the graph was not modified.")
+        
+        qcg = QuantumCircuitGraph(build_circuit_from_graph(transformed_graph))
+        # print("Transformed circuit has been created.")
+        return qcg
+    
+    
+    def _check_shared_qubits(self, subgraph):
+        """
+        Check at least one non shared qubit between the two gates in the subgraph.
+        """
+        unique_qubits, counts = np.unique(
+                [get_qubit(node) for node in subgraph.nodes], return_counts=True
+            )
 
-        return QuantumCircuitGraph(build_circuit_from_graph(transformed_graph))
+        # Return only qubits with a count of 1, ensuring correct unpacking
+        qubits = unique_qubits[counts == 1]
+
+        return len(qubits) > 0
+    
+    def _shuffle_matches(self):
+        """Shuffle the order of matches to introduce variability in subgraph selection."""
+        shuffling = np.random.permutation(len(self.matching_subgraph))
+        self.matching_subgraph = [self.matching_subgraph[i] for i in shuffling]
+        self.matching_key = [self.matching_key[i] for i in shuffling]
+
     
 
 class CommuteCNOTRotationTransformation(CircuitTransformation, CommutationMixin):

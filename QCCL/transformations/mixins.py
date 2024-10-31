@@ -145,8 +145,12 @@ class CommutationMixin:
         """
         Commutes gates in the specified subgraph if they are adjacent and satisfy commutation conditions.
         """
-        if self._count_gates(subgraph) != 2:
-            raise TransformationError("Subgraph must contain exactly two gates for commutation.")
+        try:
+            if self._count_gates(subgraph) != 2:
+                raise TransformationError("Subgraph must contain exactly two gates for commutation.")
+        except AttributeError:
+            print(subgraph)
+            raise
 
         # Identify predecessors and successors for each qubit, marking common qubits in the process
         pred_succ_map, common_qubits = self._extract_predecessors_successors(graph, subgraph)

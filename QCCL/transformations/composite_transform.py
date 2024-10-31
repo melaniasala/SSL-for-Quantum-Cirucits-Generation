@@ -78,20 +78,22 @@ class RandomCompositeTransformation(CircuitTransformation):
             # Randomly select a transformation type from the pool
             transformation_type = random.choice(self.transformation_pool)
             transformation = TransformationFactory.create_transformation(transformation_type, transformed_qcg)
-
+            # print(f"Trying transformation '{transformation_type}'...")
             try:
                 # Apply the transformation
                 transformed_qcg = transformation.apply()
                 successful_transformations += 1
                 self.transformation_pool.remove(transformation_type)  # Remove the transformation from the pool
-            except NoMatchingSubgraphsError:
-                # Print message and continue to the next trial
-                print(f"No matching subgraph found for transformation '{transformation_type}'. Trying witgh another transformation...")
-            except TransformationError as e:
-                # Print detailed error information and stop computation
-                print(f"Failed to apply transformation '{transformation_type}' due to error: {e}")
-                traceback.print_exc()  # Print the full traceback including file and line number
-                raise  # Re-raise the exception to halt the execution
+            # except NoMatchingSubgraphsError:
+            #     # Print message and continue to the next trial
+            #     print(f"No matching subgraph found for transformation '{transformation_type}'. Trying with another transformation...")
+            # except TransformationError as e:
+            #     # Print detailed error information and stop computation
+            #     print(f"Failed to apply transformation '{transformation_type}' due to error: {e}")
+            #     raise  # Re-raise the exception to halt the execution
+            except (NoMatchingSubgraphsError, TransformationError) as e:
+                print(f"Skipping transformation '{transformation_type}' due to error: {e}")
+                continue
 
             trials += 1  # Increment the number of attempts
 

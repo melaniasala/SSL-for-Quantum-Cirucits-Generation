@@ -63,7 +63,7 @@ class CircuitTransformation:
                 matcher = DiGraphMatcher(self.graph, subgraph, 
                                          node_match=lambda n1, n2: n1['type'] == n2['type'] and n1['ctrl_trgt'] == n2['ctrl_trgt'])
                 matching = list(matcher.subgraph_isomorphisms_iter()) 
-                if not matching:
+                if not matching or matching == []:
                     continue
 
                 # Shuffle the matching subgraphs to avoid bias and store a single match
@@ -79,7 +79,7 @@ class CircuitTransformation:
                     matching_subgraphs.append(matching)
                     matching_key.append(key)
             
-            if not matching_subgraphs:
+            if not matching_subgraphs or matching_subgraphs == []:
                 raise NoMatchingSubgraphsError("No matching subgraphs found for the given pattern.")
             
             self.matching_subgraph = matching_subgraphs
