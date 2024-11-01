@@ -35,7 +35,7 @@ class GCNFeatureExtractor(GNNFeatureExtractor):
     def __init__(self, in_channels, out_channels, pooling_strategy='global_avg', num_layers=5): 
         super(GCNFeatureExtractor, self).__init__(in_channels, out_channels, pooling_strategy, num_layers)
         self.conv_layers = nn.ModuleList()
-        max_exp = 10
+        max_exp = 15
         if num_layers < 2:
             raise ValueError("Number of layers should be at least 2 (1 hidden layer)")
         for i in range(num_layers-1):
@@ -43,6 +43,7 @@ class GCNFeatureExtractor(GNNFeatureExtractor):
                 self.conv_layers.append(gnn.GCNConv(in_channels, 2**max_exp))
             else:
                 self.conv_layers.append(gnn.GCNConv(2**(max_exp-i+1), 2**(max_exp-i)))
+                print(f"Added GCNConv layer with input size {2**(max_exp-i+1)} and output size {2**(max_exp-i)}")
         self.conv_layers.append(gnn.GCNConv(2**(max_exp-num_layers+2), out_channels))
 
     def forward(self, sample):
