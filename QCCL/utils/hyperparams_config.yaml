@@ -21,7 +21,7 @@ patience:
 projection_size:
   range: [64, 1048576]
   tune: true
-  type: loguniform
+  type: int
   default: 12
 tau: # temperature parameter for contrastive loss in SimCLR, target decay rate in BYOL
   range: [0.01, 1.0]
