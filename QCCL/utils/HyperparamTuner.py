@@ -258,21 +258,23 @@ class HyperparamTuner:
         # Split the dataset
         data_train, data_val, data_test, folds = self.split_dataset(X)
         use_pre_paired = self.experiment_configs["use_pre_paired_dataset"]
+        n_transforms = self.experiment_configs["num_transformations"]
 
         print("Data split completed:")
         print(f"Training set: {len(data_train)} samples")
         print(f"Validation set: {len(data_val)} samples")
         print(f"Test set: {len(data_test)} samples")
 
-        X_train = GraphDataset(data_train, pre_paired=use_pre_paired)
-        X_val = GraphDataset(data_val, pre_paired=use_pre_paired)
-        X_train_val = GraphDataset(data_train + data_val, pre_paired=use_pre_paired)
+        X_train = GraphDataset(data_train, pre_paired=use_pre_paired, num_transformations=n_transforms)
+        X_val = GraphDataset(data_val, pre_paired=use_pre_paired, num_transformations=n_transforms)
+        X_train_val = GraphDataset(data_train + data_val, pre_paired=use_pre_paired, num_transformations=n_transforms)
+        X_test = GraphDataset(data_test, pre_paired=use_pre_paired, num_transformations=n_transforms)
 
         if self.n_splits is not None:
             folds = [
                 (
-                    GraphDataset(train_data, pre_paired=use_pre_paired),
-                    GraphDataset(val_data, pre_paired=use_pre_paired),
+                    GraphDataset(train_data, pre_paired=use_pre_paired, num_transformations=n_transforms),
+                    GraphDataset(val_data, pre_paired=use_pre_paired, num_transformations=n_transforms),
                 )
                 for train_data, val_data in folds
             ]
@@ -330,16 +332,38 @@ class HyperparamTuner:
         print("Plot saved as training_best_history.png")
         print("Testing best parameters on the test set with Linear Evaluation...")
 
-        # create labels
-        labels = torch.tensor([])
-        for i in range(len(data_test)):
-            class_labels = torch.ones(len(data_test[i])) * i
-            labels = torch.cat((labels, class_labels))
+        labels = []
+        data = []
+
+        # Determine label and data processing based on `use_pre_paired`
+        if use_pre_paired:
+            print("Using pre-paired data for testing...")
+            # For pre-paired data, set labels and convert graphs
+            for i, graph_group in enumerate(data_test):
+                labels.extend([i] * len(graph_group))  # Create class labels for each graph in group
+                data.extend(from_nx_to_geometric(graph) for graph in graph_group)
+
+        else:
+            print(f"Buidling {n_transforms} augmented views for each sample in test set...")
+            # For non-pre-paired data, apply transformations for each sample
+            num_augmented_views = 4
+            for i, (original_sample, augmented_sample) in enumerate(X_test):
+                labels.extend([i] * (num_augmented_views + 1))  # Original + augmented views
+                data.append(original_sample)                   # Add original sample
+                data.append(augmented_sample)                  # Add first augmented sample
+
+                # Generate additional augmented views
+                for _ in range(num_augmented_views - 1):
+                    _, new_augmented_sample = X_test[i]   
+                    data.append(new_augmented_sample)
+
+        # Convert labels to a tensor
+        labels = torch.tensor(labels)
+
         print(f"In test set there are {len(labels)} samples, distributed in {len(data_test)} classes as follows: {labels}")
         
         # split in train and test
-        data = [from_nx_to_geometric(g) for gg in data_test for g in gg]
-        train, test, y_train, y_test = train_test_split(data, labels, test_size=0.4, stratify=labels)
+        train, test, y_train, y_test = train_test_split(data, labels, test_size=0.2, stratify=labels)
 
         # get embeddings
         gnn = best_model.get_gnn().to(self.device)
