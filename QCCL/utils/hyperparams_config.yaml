@@ -19,7 +19,7 @@ patience:
   type: int
   default: None # None means no early stopping
 projection_size:
-  range: [64, 1048576]
+  range: [64, 4096]
   tune: true
   type: int
   default: 12
