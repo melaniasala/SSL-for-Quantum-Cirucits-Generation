@@ -7,7 +7,7 @@ from QCCL.transformations import RandomCompositeTransformation
 from torch_geometric.data import Data
 
 class GraphDataset(Dataset):
-    def __init__(self, qc_graphs, pre_paired=False):
+    def __init__(self, qc_graphs, pre_paired=False, num_transformations=2):
         """
         graphs: List of graphs or list of lists of paired NetworkX graphs.
         transform: Transformations to apply for augmentation (only used if pre_paired is False).
@@ -15,18 +15,19 @@ class GraphDataset(Dataset):
         """
         self.quantum_circuit_graphs = qc_graphs
         self.pre_paired = pre_paired
+        self.num_transformations = num_transformations
     
     def __len__(self):
         return len(self.quantum_circuit_graphs)
     
-    def __getitem__(self, idx, num_transformations=2):
+    def __getitem__(self, idx):
         if self.pre_paired:
             idx1, idx2 = np.random.choice(range(len(self.quantum_circuit_graphs[idx])), 2, replace=False)
             qcg1, qcg2 = self.quantum_circuit_graphs[idx][idx1], self.quantum_circuit_graphs[idx][idx2]
         else:
             qcg1 = self.quantum_circuit_graphs[idx]
 
-            random_composite_transform = RandomCompositeTransformation(qcg1, num_transformations=num_transformations)
+            random_composite_transform = RandomCompositeTransformation(qcg1, num_transformations=self.num_transformations)
             qcg2 =  random_composite_transform.apply()
             # print(f"Applied {num_transformations} random transformations to sample, returning pair of graphs.")
 
