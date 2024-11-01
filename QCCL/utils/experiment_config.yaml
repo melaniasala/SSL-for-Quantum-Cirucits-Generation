@@ -6,6 +6,7 @@ hidden_size: 256 #2**10
 composite_transforms_size: 7
 use_pre_paired_dataset: false
 n_splits: null # number of splits for K-fold cross-validation (null -> None for no cross-validation)
+num_transformations: 2
 
 gnn:
   in_channels: 6 # number of node features for gnn input
