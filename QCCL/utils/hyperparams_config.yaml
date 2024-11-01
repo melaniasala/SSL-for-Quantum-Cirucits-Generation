@@ -19,7 +19,7 @@ patience:
   type: int
   default: None # None means no early stopping
 projection_size:
-  range: [2**4, 2**20]
+  range: [64, 1048576]
   tune: true
   type: loguniform
   default: 12
@@ -30,8 +30,8 @@ tau: # temperature parameter for contrastive loss in SimCLR, target decay rate i
   default: 0.996
 epochs:
   range: [50, 2000]
-  tune: true
+  tune: false
   type: int
-  default: 2500
+  default: 2
 
 
