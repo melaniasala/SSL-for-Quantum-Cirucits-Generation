@@ -4,7 +4,7 @@ learning_rate:
   type: loguniform
   default: 1e-3
 n_layers:
-  range: [2, 15]
+  range: [2, 10]
   tune: true
   type: int
   default: 5

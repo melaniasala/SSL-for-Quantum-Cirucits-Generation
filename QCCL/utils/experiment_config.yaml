@@ -1,15 +1,15 @@
 model_type: "simclr"
 train_size: 0.6
 val_size: 0.2
-embedding_size: 4096 #2**12
-hidden_size: 1024 #2**10
+embedding_size: 512 #2**12
+hidden_size: 256 #2**10
 composite_transforms_size: 7
 use_pre_paired_dataset: false
 n_splits: null # number of splits for K-fold cross-validation (null -> None for no cross-validation)
 
 gnn:
   in_channels: 6 # number of node features for gnn input
-  out_channels: 4096 # should be equal to embedding_size
+  out_channels: 512 # should be equal to embedding_size
   pooling_strategy: "global_avg"
 
 train:
