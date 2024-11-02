@@ -29,7 +29,7 @@ tau: # temperature parameter for contrastive loss in SimCLR, target decay rate i
   type: loguniform
   default: 0.996
 epochs:
-  range: [2, 3]
+  range: [10, 2000]
   tune: true
   type: int
   default: 2
