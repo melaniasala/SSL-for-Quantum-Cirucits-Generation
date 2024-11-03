@@ -246,7 +246,7 @@ class HyperparamTuner:
             )
             return avg_val_loss
 
-    def run_experiment(self, n_trials=100, dataset_name='dataset_90.pkl'):
+    def run_experiment(self, n_trials=100, dataset_name='None'):
         global X_train, X_val, input_dim, folds
 
         optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -265,10 +265,7 @@ class HyperparamTuner:
         print(f"Validation set: {len(data_val)} samples")
         print(f"Test set: {len(data_test)} samples")
 
-        X_train = GraphDataset(data_train, pre_paired=use_pre_paired, num_transformations=n_transforms)
-        X_val = GraphDataset(data_val, pre_paired=use_pre_paired, num_transformations=n_transforms)
-        X_train_val = GraphDataset(data_train + data_val, pre_paired=use_pre_paired, num_transformations=n_transforms)
-        X_test = GraphDataset(data_test, pre_paired=use_pre_paired, num_transformations=n_transforms)
+        X_train, X_val, X_train_val, X_test = self.prepare_datasets(data_train, data_val, data_test, n_transforms, use_pre_paired)        
 
         if self.n_splits is not None:
             folds = [
@@ -287,24 +284,33 @@ class HyperparamTuner:
         best_params = study.best_params
         print(f"\nHyperparameter tuning complete. Best parameters: {best_params}")
 
-        trials_df = (
-            study.trials_dataframe()
-            .drop(columns=["datetime_start", "datetime_complete", "duration"])
-            .to_dict(orient="records")
-        )
-        study_results = {
-            "best_params": best_params,
-            "experiment_configs": self.experiment_configs,
-            "trials_dataframe": trials_df,
-        }
+        self.save_results(study, best_params)
 
-        # Save the results to a YAML file
-        with open("hyperparam_tuning_results_with_configs.yaml", "w") as f:
-            yaml.dump(study_results, f, default_flow_style=False)
+        best_model = self.retrain_best_model(best_params, X_train_val)
 
-        print("Results saved to hyperparam_tuning_results_with_configs.yaml")
+        self.evaluate(best_model, X_test, use_pre_paired, n_transforms)
 
-        print("Retrain the model with the best hyperparameters on both training and validation sets...")
+        print("Hyperparameter tuning and evaluation completed successfully.")
+
+        return best_params
+
+    def save_results(self, study, best_params):
+            trials_df = (
+                study.trials_dataframe()
+                .drop(columns=["datetime_start", "datetime_complete", "duration"])
+                .to_dict(orient="records")
+            )
+            study_results = {
+                "best_params": best_params,
+                "experiment_configs": self.experiment_configs,
+                "trials_dataframe": trials_df,
+            }
+            with open("hyperparam_tuning_results_with_configs.yaml", "w") as f:
+                yaml.dump(study_results, f, default_flow_style=False)
+            print("Results saved to hyperparam_tuning_results_with_configs.yaml")
+
+    def retrain_best_model(self, best_params, X_train_val):
+        print("Retraining the model with the best hyperparameters on both training and validation sets...")
         best_model, model_type = self.build_model(
             num_layers=best_params["n_layers"],
             proj_output_size=best_params["projection_size"],
@@ -316,89 +322,79 @@ class HyperparamTuner:
             batch_size=best_params["batch_size"],
             lr=best_params["learning_rate"],
             tau=best_params["tau"],
-            #patience=best_params["patience"],
             device=self.device,
             **self.experiment_configs["train"],
         )
-
-        print("Retraining completed. Saving the best model and training history...")
         torch.save(best_model.state_dict(), "best_model.pth")
         plt.plot(history_best["train_loss"], label="Training Loss")
         plt.xlabel("Epoch")
         plt.ylabel("Loss")
         plt.legend()
         plt.savefig("training_best_history.png")
+        print("Training history saved as training_best_history.png")
+        return best_model
 
-        print("Plot saved as training_best_history.png")
+    def evaluate_best_model(self, best_model, X_test, use_pre_paired, n_transforms):
         print("Testing best parameters on the test set with Linear Evaluation...")
-
-        labels = []
-        data = []
-
-        # Determine label and data processing based on `use_pre_paired`
-        if use_pre_paired:
-            print("Using pre-paired data for testing...")
-            # For pre-paired data, set labels and convert graphs
-            for i, graph_group in enumerate(data_test):
-                labels.extend([i] * len(graph_group))  # Create class labels for each graph in group
-                data.extend(from_nx_to_geometric(graph) for graph in graph_group)
-
-        else:
-            print(f"Buidling {n_transforms} augmented views for each sample in test set...")
-            # For non-pre-paired data, apply transformations for each sample
-            num_augmented_views = 4
-            for i, (original_sample, augmented_sample) in enumerate(X_test):
-                labels.extend([i] * (num_augmented_views + 1))  # Original + augmented views
-                data.append(original_sample)                   # Add original sample
-                data.append(augmented_sample)                  # Add first augmented sample
-
-                # Generate additional augmented views
-                for _ in range(num_augmented_views - 1):
-                    _, new_augmented_sample = X_test[i]   
-                    data.append(new_augmented_sample)
-
-        # Convert labels to a tensor
-        labels = torch.tensor(labels)
-
-        print(f"In test set there are {len(labels)} samples, distributed in {len(data_test)} classes as follows: {labels}")
         
-        # split in train and test
+        labels, data = self.prepare_test_data(X_test, use_pre_paired, n_transforms)
+        
         train, test, y_train, y_test = train_test_split(data, labels, test_size=0.2, stratify=labels)
-
-        # get embeddings
+        
+        # Get embeddings
         gnn = best_model.get_gnn().to(self.device)
         train = torch.cat([gnn(d.to(self.device)) for d in train])
         test = torch.cat([gnn(d.to(self.device)) for d in test])
-
-        # scale embeddings
+        
+        # Scale embeddings
         scaler = StandardScaler()
         train = scaler.fit_transform(train.cpu().detach().numpy())
         test = scaler.transform(test.cpu().detach().numpy())
-
-        # train a linear classifier (multi-class logistic regression) on top of the embeddings
-        print("Training a linear classifier on top of the embeddings...")
-        print("Logistic Regression (one-vs-rest) classifier:")
-        classifier = LogisticRegression(max_iter=1000).fit(train, y_train)
-        y_pred = classifier.predict(test)
-        y_pred_probs = classifier.predict_proba(test)
-        print(f"\tProbability of each class:\n\t {y_pred_probs}")
-        print(f"\tAccuracy of the classifier: {accuracy_score(y_test, y_pred)}")
-
-        print("Logistic Regression (multinomial) classifier:")
-        classifier = LogisticRegression(multi_class='multinomial', max_iter=1000).fit(train, y_train)
-        y_pred = classifier.predict(test)
-        y_pred_probs = classifier.predict_proba(test)
-        print(f"\tProbability of each class:\n\t {y_pred_probs}")
-        print(f"\tAccuracy of the classifier: {accuracy_score(y_test, y_pred)}")
         
-        print("Ground truth labels:")   
-        print(y_test)
+        # Train and evaluate linear classifier
+        print("Training a linear classifier on top of the embeddings...")
+        self.linear_evaluation(train, test, y_train, y_test)
 
-        print("Linear evaluation completed")
+def prepare_datasets(data_train, data_val, data_test, n_transforms, use_pre_paired):
+        X_train = GraphDataset(data_train, pre_paired=use_pre_paired, num_transformations=n_transforms)
+        X_val = GraphDataset(data_val, pre_paired=use_pre_paired, num_transformations=n_transforms)
+        X_train_val = GraphDataset(data_train + data_val, pre_paired=use_pre_paired, num_transformations=n_transforms)
+        X_test = GraphDataset(data_test, pre_paired=use_pre_paired, num_transformations=n_transforms)
+        return X_train, X_val, X_train_val, X_test
 
-        print("Hyperparameter tuning and evaluation completed successfully.")
+def prepare_test_data(X_test, use_pre_paired, n_transforms):
+    labels, data = [], []
+    if use_pre_paired:
+        print("Using pre-paired data for testing...")
+        for i, graph_group in enumerate(X_test):
+            labels.extend([i] * len(graph_group))
+            data.extend(from_nx_to_geometric(graph) for graph in graph_group)
+    else:
+        print(f"Building {n_transforms} augmented views for each sample in test set...")
+        num_augmented_views = 4
+        for i, (original_sample, augmented_sample) in enumerate(X_test):
+            labels.extend([i] * (num_augmented_views + 1))
+            data.append(original_sample)
+            data.append(augmented_sample)
+            for _ in range(num_augmented_views - 1):
+                _, new_augmented_sample = X_test[i]
+                data.append(new_augmented_sample)
+    return torch.tensor(labels), data
+    
+def linear_evaluation(train, test, y_train, y_test):
+    # Logistic Regression (one-vs-rest)
+    print("Logistic Regression (one-vs-rest) classifier:")
+    classifier = LogisticRegression(max_iter=1000).fit(train, y_train)
+    y_pred = classifier.predict(test)
+    print(f"\tAccuracy of the classifier: {accuracy_score(y_test, y_pred)}")
 
-        return best_params
+    # Logistic Regression (multinomial)
+    print("Logistic Regression (multinomial) classifier:")
+    classifier = LogisticRegression(multi_class='multinomial', max_iter=1000).fit(train, y_train)
+    y_pred = classifier.predict(test)
+    print(f"\tAccuracy of the classifier: {accuracy_score(y_test, y_pred)}")
+
+    print("Linear evaluation completed")
 
 
 def get_hyperparameter_value(trial, param_name, param_config):
