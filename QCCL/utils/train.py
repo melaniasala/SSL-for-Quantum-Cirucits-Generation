@@ -11,6 +11,7 @@ from .losses import NTXentLoss
 def validate(model, val_loader, loss_fun, device='cuda'):
     model.eval()
     total_loss = 0
+    total_samples = 0
     with torch.no_grad():
         for graph1, graph2 in val_loader:
             graph1, graph2 = graph1.to(device), graph2.to(device)
@@ -32,7 +33,13 @@ def validate(model, val_loader, loss_fun, device='cuda'):
 
             total_loss += loss.item()
             # print("Loss added to total validation loss.")
-    return total_loss / len(val_loader)
+            
+            # Accumulate total loss and sample count
+            batch_size = graph1.size(0)
+            total_loss += loss.item() * batch_size
+            total_samples += batch_size
+
+    return total_loss / total_samples  # Mean loss per sample
 
 
 
@@ -74,6 +81,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
         total_loss = 0
         total_grad_norm_l2 = 0 
         total_grad_norm_l1 = 0 
+        total_samples = 0
 
         #extract the number of parameters in the model
         num_params_model = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -110,8 +118,10 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
             optimizer.step()
             # print("Optimizer step done")
 
-            total_loss += loss.item()
-            # print("Loss added to total loss")
+            # Accumulate total loss and sample count
+            batch_size = graph1.size(0)
+            total_loss += loss.item() * batch_size
+            total_samples += batch_size
 
         total_grad_norm_l2 = np.sqrt(total_grad_norm_l2)
         avg_grad_norm_l1_per_param = total_grad_norm_l1 / num_params_model
@@ -120,7 +130,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
 
         # print("Training step done.")
 
-        return total_loss / len(train_loader)
+        return total_loss / total_samples  
     
     def validate_step():
         # print("Validation step started.")
