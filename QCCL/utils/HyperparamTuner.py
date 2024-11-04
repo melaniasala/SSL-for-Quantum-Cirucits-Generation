@@ -85,77 +85,6 @@ class HyperparamTuner:
         print("Model moved to device:", self.device)
         return model, self.experiment_configs["model_type"]
 
-    def split_dataset(self, X):
-        print("\nStarting dataset split...")
-
-        train_size = self.experiment_configs["train_size"]
-        val_size = self.experiment_configs["val_size"]
-        # composite_transforms_size = self.experiment_configs[
-        #     "composite_transforms_size"
-        # ]
-
-        total_size = len(X)
-        print(f"Total dataset size: {total_size}")
-        # print(f"Composite transformations size: {composite_transforms_size}")
-
-        test_size = 1.0 - train_size - val_size
-        test_size = int(test_size * total_size)
-        val_size = int(val_size * total_size)
-        train_size = total_size - val_size - test_size
-
-        print(
-            f"Splitting into {train_size} training, {val_size} validation, and {test_size} test circuits..."
-        )
-
-        # composite_circuits = X[
-        #     -composite_transforms_size:
-        # ]  # Last n circuits (composite transformations)
-        # single_transform_circuits = X[
-        #     :-composite_transforms_size
-        # ]  # Remaining circuits (single transformations)
-
-        # # Shuffle and split
-        # shuffling_mask = np.random.permutation(len(composite_circuits))
-        # composite_circuits = [composite_circuits[i] for i in shuffling_mask]
-
-        # val_data = composite_circuits[:val_size]
-        # remaining_composite = composite_circuits[
-        #     min(val_size, composite_transforms_size) :
-        # ]
-
-        # test_data = remaining_composite[: min(test_size, len(remaining_composite))]
-        # if (
-        #     len(test_data) < test_size
-        # ):  # If not enough composite circuits, take from single transformation circuits
-        #     print(
-        #         "Not enough composite circuits for test set, adding single transformation circuits..."
-        #     )
-        #     additional_test_data = single_transform_circuits[
-        #         : (test_size - len(test_data))
-        #     ]
-        #     test_data = test_data + additional_test_data
-
-        # remaining_composite = remaining_composite[
-        #     min(test_size, len(remaining_composite)) :
-        # ]
-        # remaining_single = single_transform_circuits[(test_size - len(test_data)) :]
-        # train_data = remaining_single + remaining_composite
-        # shuffling_mask = np.random.permutation(len(train_data))
-        # train_data = [train_data[i] for i in shuffling_mask]
-
-        train_data, test_data = train_test_split(X, train_size=train_size, shuffle=True)
-        val_data, test_data = train_test_split(test_data, train_size=val_size, shuffle=True)
-
-        if self.n_splits is None:
-            print("Using standard train/val split...")
-            folds = None
-        else:
-            print(f"Using {self.n_splits}-fold cross-validation...")
-            folds = kfold(train_data+val_data, self.n_splits)
-            print(f"Generated {self.n_splits} folds for cross-validation.")
-        return train_data, val_data, test_data, folds
-
-
     def objective(self, trial):
         print("\n" + "=" * 50)
         print(f"Starting Optuna trial {trial.number}...")
@@ -256,15 +185,15 @@ class HyperparamTuner:
         print(f"Dataset {dataset_name} loaded successfully.")
 
         # Split the dataset
-        data_train, data_val, data_test, folds = self.split_dataset(X)
         use_pre_paired = self.experiment_configs["use_pre_paired_dataset"]
-        n_transforms = self.experiment_configs["num_transformations"]
+        data_train, data_val, data_test, folds = self.split_dataset(X, use_pre_paired)
 
         print("Data split completed:")
         print(f"Training set: {len(data_train)} samples")
         print(f"Validation set: {len(data_val)} samples")
         print(f"Test set: {len(data_test)} samples")
 
+        n_transforms = self.experiment_configs["num_transformations"]
         X_train, X_val, X_train_val, X_test = self.prepare_datasets(data_train, data_val, data_test, n_transforms, use_pre_paired)        
 
         if self.n_splits is not None:
@@ -288,7 +217,8 @@ class HyperparamTuner:
 
         best_model = self.retrain_best_model(best_params, X_train_val)
 
-        self.evaluate(best_model, X_test, use_pre_paired, n_transforms)
+        num_augmented_views = self.experiment_configs["num_augmented_views"]
+        self.evaluate(best_model, X_test, use_pre_paired, num_augmented_views)
 
         print("Hyperparameter tuning and evaluation completed successfully.")
 
@@ -334,10 +264,10 @@ class HyperparamTuner:
         print("Training history saved as training_best_history.png")
         return best_model
 
-    def evaluate_best_model(self, best_model, X_test, use_pre_paired, n_transforms):
+    def evaluate(self, best_model, X_test, use_pre_paired, num_augmented_views):
         print("Testing best parameters on the test set with Linear Evaluation...")
         
-        labels, data = self.prepare_test_data(X_test, use_pre_paired, n_transforms)
+        labels, data = self.prepare_test_data(X_test, use_pre_paired, num_augmented_views)
         
         train, test, y_train, y_test = train_test_split(data, labels, test_size=0.2, stratify=labels)
         
@@ -355,6 +285,73 @@ class HyperparamTuner:
         print("Training a linear classifier on top of the embeddings...")
         self.linear_evaluation(train, test, y_train, y_test)
 
+def split_dataset(X, train_size, validation_size, n_splits=None, prepaired=False, composite_size=0):
+    print("\nStarting dataset split...")
+
+    total_size = len(X)
+    print(f"Total dataset size: {total_size}")
+    # print(f"Composite transformations size: {composite_transforms_size}")
+
+    test_size = 1.0 - train_size - validation_size
+    test_size = int(test_size * total_size)
+    val_size = int(validation_size * total_size)
+    train_size = total_size - val_size - test_size
+
+    print(
+        f"Splitting into {train_size} training, {val_size} validation, and {test_size} test circuits..."
+    )
+
+    if not prepaired:
+        composite_circuits = X[
+            -composite_size:
+        ]  # Last n circuits (composite transformations)
+        single_transform_circuits = X[
+            :-composite_size
+        ]  # Remaining circuits (single transformations)
+
+        # Shuffle and split
+        shuffling_mask = np.random.permutation(len(composite_circuits))
+        composite_circuits = [composite_circuits[i] for i in shuffling_mask]
+
+        val_data = composite_circuits[:val_size]
+        remaining_composite = composite_circuits[
+            min(val_size, composite_size) :
+        ]
+
+        test_data = remaining_composite[: min(test_size, len(remaining_composite))]
+        if (
+            len(test_data) < test_size
+        ):  # If not enough composite circuits, take from single transformation circuits
+            print(
+                "Not enough composite circuits for test set, adding single transformation circuits..."
+            )
+            additional_test_data = single_transform_circuits[
+                : (test_size - len(test_data))
+            ]
+            test_data = test_data + additional_test_data
+
+        remaining_composite = remaining_composite[
+            min(test_size, len(remaining_composite)) :
+        ]
+        remaining_single = single_transform_circuits[(test_size - len(test_data)) :]
+        train_data = remaining_single + remaining_composite
+        shuffling_mask = np.random.permutation(len(train_data))
+        train_data = [train_data[i] for i in shuffling_mask]
+
+    else: # not pre-paired dataset
+        train_data, test_data = train_test_split(X, train_size=train_size, shuffle=True)
+        val_data, test_data = train_test_split(test_data, train_size=val_size, shuffle=True)
+
+    if n_splits is None:
+        print("Using standard train/val split...")
+        folds = None
+    else:
+        print(f"Using {n_splits}-fold cross-validation...")
+        folds = kfold(train_data+val_data, n_splits)
+        print(f"Generated {n_splits} folds for cross-validation.")
+
+    return train_data, val_data, test_data, folds
+
 def prepare_datasets(data_train, data_val, data_test, n_transforms, use_pre_paired):
         X_train = GraphDataset(data_train, pre_paired=use_pre_paired, num_transformations=n_transforms)
         X_val = GraphDataset(data_val, pre_paired=use_pre_paired, num_transformations=n_transforms)
@@ -362,15 +359,31 @@ def prepare_datasets(data_train, data_val, data_test, n_transforms, use_pre_pair
         X_test = GraphDataset(data_test, pre_paired=use_pre_paired, num_transformations=n_transforms)
         return X_train, X_val, X_train_val, X_test
 
-def prepare_test_data(X_test, use_pre_paired, n_transforms):
+def prepare_test_data(X_test, use_pre_paired, num_augmented_views):
+    """
+    Prepare test data for linear evaluation.
+    
+    If use_pre_paired is True, the test data is already paired and ready for evaluation;
+    otherwise, we generate n_transforms augmented views for each sample in the test set.
+
+    Args:
+    X_test: Test dataset (GraphDataset object).
+    use_pre_paired: Boolean flag to indicate if the test data is already paired.
+    num_augmented_views: Number of augmented views to generate for each sample in the test set.
+        (only used if use_pre_paired is False)
+    
+    Returns:
+    labels: List of labels for each sample in the test set.
+    data: List of augmented views for each sample in the test set.
+    """
     labels, data = [], []
     if use_pre_paired:
         print("Using pre-paired data for testing...")
-        for i, graph_group in enumerate(X_test):
+        for i, graph_group in enumerate([X_test.get_equivalence_class(i) for i in range(len(X_test))]):
             labels.extend([i] * len(graph_group))
-            data.extend(from_nx_to_geometric(graph) for graph in graph_group)
+            data.extend(graph_group)
     else:
-        print(f"Building {n_transforms} augmented views for each sample in test set...")
+        print(f"Building {num_augmented_views} augmented views for each sample in test set...")
         num_augmented_views = 4
         for i, (original_sample, augmented_sample) in enumerate(X_test):
             labels.extend([i] * (num_augmented_views + 1))
