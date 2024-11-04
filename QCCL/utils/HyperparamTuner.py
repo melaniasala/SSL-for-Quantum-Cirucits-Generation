@@ -359,7 +359,7 @@ def prepare_datasets(data_train, data_val, data_test, n_transforms, use_pre_pair
         X_test = GraphDataset(data_test, pre_paired=use_pre_paired, num_transformations=n_transforms)
         return X_train, X_val, X_train_val, X_test
 
-def prepare_test_data(X_test, use_pre_paired, num_augmented_views):
+def prepare_test_data(X_test, use_pre_paired, num_augmented_views, return_circuits=False):
     """
     Prepare test data for linear evaluation.
     
@@ -376,23 +376,38 @@ def prepare_test_data(X_test, use_pre_paired, num_augmented_views):
     labels: List of labels for each sample in the test set.
     data: List of augmented views for each sample in the test set.
     """
-    labels, data = [], []
+    labels, data, circuits = [], [], []
     if use_pre_paired:
         print("Using pre-paired data for testing...")
         for i, graph_group in enumerate([X_test.get_equivalence_class(i) for i in range(len(X_test))]):
             labels.extend([i] * len(graph_group))
             data.extend(graph_group)
+        if return_circuits:
+            raise NotImplementedError("Returning circuits is not implemented for pre-paired data.")
     else:
         print(f"Building {num_augmented_views} augmented views for each sample in test set...")
-        num_augmented_views = 4
-        for i, (original_sample, augmented_sample) in enumerate(X_test):
+    
+        for i in range(len(X_test)):
+            # Retrieve the original and augmented samples with both graph and circuit representations
+            (original_graph, original_circuit), (augmented_graph, augmented_circuit) = X_test.__getitem__(i, return_graph=True, return_circuit=True)
+            
+            # Store the original and augmented samples' labels, data, and circuits
             labels.extend([i] * (num_augmented_views + 1))
-            data.append(original_sample)
-            data.append(augmented_sample)
+            data.append(original_graph)
+            circuits.append(original_circuit)
+            data.append(augmented_graph)
+            circuits.append(augmented_circuit)
+
+            # Generate additional augmented views for the same sample
             for _ in range(num_augmented_views - 1):
-                _, new_augmented_sample = X_test[i]
-                data.append(new_augmented_sample)
-    return torch.tensor(labels), data
+                _, (new_augmented_graph, new_augmented_circuit) = X_test.__getitem__(i, return_graph=True, return_circuit=True)
+                data.append(new_augmented_graph)
+                circuits.append(new_augmented_circuit)
+            
+    if return_circuits:
+        return np.array(labels), data, circuits
+    else:
+        return np.array(labels), data
     
 def linear_evaluation(train, test, y_train, y_test):
     # Logistic Regression (one-vs-rest)
