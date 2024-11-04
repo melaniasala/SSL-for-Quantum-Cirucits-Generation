@@ -13,6 +13,7 @@ gnn:
   in_channels: 6 # number of node features for gnn input
   out_channels: 1024 # should be equal to embedding_size
   pooling_strategy: "global_avg"
+  add_global_node: true
 
 train:
   ema_alpha: 0.05
