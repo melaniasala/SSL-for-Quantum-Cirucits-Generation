@@ -20,7 +20,7 @@ class GraphDataset(Dataset):
     def __len__(self):
         return len(self.quantum_circuit_graphs)
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, return_graph=True, return_circuit=False):
         if self.pre_paired:
             idx1, idx2 = np.random.choice(range(len(self.quantum_circuit_graphs[idx])), 2, replace=False)
             qcg1, qcg2 = self.quantum_circuit_graphs[idx][idx1], self.quantum_circuit_graphs[idx][idx2]
@@ -31,7 +31,18 @@ class GraphDataset(Dataset):
             qcg2 =  random_composite_transform.apply()
             # print(f"Applied {num_transformations} random transformations to sample, returning pair of graphs.")
 
+        if return_circuit and return_graph:
+            return (from_nx_to_geometric(qcg1.graph), qcg1.quantum_circuit), (from_nx_to_geometric(qcg2.graph), qcg2.quantum_circuit)
+        
+        if return_circuit:
+            return qcg1.quantum_circuit, qcg2.quantum_circuit
+     
         return from_nx_to_geometric(qcg1.graph), from_nx_to_geometric(qcg2.graph)
+    
+
+    def get_equivalence_class(self, idx):
+        clss = self.quantum_circuit_graphs[idx]
+        return [from_nx_to_geometric(qcg.graph) for qcg in clss]
 
 
 
