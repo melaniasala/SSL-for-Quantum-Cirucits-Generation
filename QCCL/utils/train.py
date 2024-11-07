@@ -4,6 +4,7 @@ from torch.nn import MSELoss
 from torch.optim import Adam
 from torch_geometric.loader import DataLoader
 from tqdm import tqdm
+from torch.profiler import profile, record_function, ProfilerActivity
 
 from .losses import NTXentLoss
 
@@ -40,6 +41,109 @@ def validate(model, val_loader, loss_fun, device='cuda'):
             total_samples += batch_size
 
     return total_loss / total_samples  # Mean loss per sample
+
+
+
+def train_with_profiling(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=1e-3, tau=0.5, device='cuda', 
+                         ema_alpha=1.0, patience=None, restore_best=False, verbose=True):
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    optimizer = Adam(model.parameters(), lr=lr)
+    nt_xent_loss = NTXentLoss(tau)
+    ema_loss = False if ema_alpha == 1.0 else True
+
+    history = {
+        'train_loss': [], 
+        'val_loss': [] if val_dataset is not None else None,
+        'grad_norm_l2': [],
+        'avg_grad_norm_l1_per_param': []
+    }
+    if ema_loss:
+        history['ema_val_loss'] = []
+
+    if val_dataset:
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+
+    if patience is None or patience == 'None':
+        patience = epochs
+  
+    
+    def train_step():
+        model.train()
+        total_loss = 0
+        total_grad_norm_l2 = 0 
+        total_grad_norm_l1 = 0 
+        total_samples = 0
+        num_params_model = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+        for graph1, graph2 in train_loader:
+            with record_function("data_loading"):
+                graph1, graph2 = graph1.to(device), graph2.to(device)
+            optimizer.zero_grad()
+
+            with record_function("model_forward"):
+                z1 = model(graph1)
+                z2 = model(graph2)
+
+            with record_function("loss_computation"):
+                loss = nt_xent_loss(z1, z2, return_scores=False)
+            loss.backward()
+
+            grad_norm_l2 = sum(param.grad.norm(2).item() ** 2 for param in model.parameters() if param.grad is not None)
+            grad_norm_l1 = sum(param.grad.norm(1).item() for param in model.parameters() if param.grad is not None)
+            total_grad_norm_l2 += grad_norm_l2
+            total_grad_norm_l1 += grad_norm_l1
+
+            optimizer.step()
+
+            batch_size = graph1.size(0)
+            total_loss += loss.item() * batch_size
+            total_samples += batch_size
+
+        total_grad_norm_l2 = np.sqrt(total_grad_norm_l2)
+        avg_grad_norm_l1_per_param = total_grad_norm_l1 / num_params_model
+        history['grad_norm_l2'].append(total_grad_norm_l2)
+        history['avg_grad_norm_l1_per_param'].append(avg_grad_norm_l1_per_param)
+
+        return total_loss / total_samples  
+    
+    def validate_step():
+        return validate(model, val_loader, nt_xent_loss, device)
+    
+    def update_history():
+        history['train_loss'].append(total_train_loss)
+        if val_dataset is not None:
+            val_loss = validate_step()
+            history['val_loss'].append(val_loss)
+            if ema_loss:
+                prev_ema = history['ema_val_loss'][-1] if history['ema_val_loss'] else val_loss
+                ema_val_loss = ema_alpha * val_loss + (1.0 - ema_alpha) * prev_ema
+                history['ema_val_loss'].append(ema_val_loss)
+        return
+
+    # Begin profiling the training process
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], 
+                 record_shapes=True, profile_memory=True) as prof:
+        for epoch in range(epochs):
+            with tqdm(total=len(train_loader), desc=f"Epoch {epoch+1}/{epochs}", unit='batch', disable=not verbose) as pbar:
+                total_train_loss = train_step()
+                pbar.update(1)
+            update_history()
+
+            if verbose:
+                print(f"\t - loss: {total_train_loss:.4f} - grad_norm_l2: {history['grad_norm_l2'][-1]:.4f}", end="")
+                if val_dataset is not None:
+                    print(f" - val_loss: {history['val_loss'][-1]:.4f}", end="")
+                    if ema_loss:
+                        print(f" - ema_val_loss: {history['ema_val_loss'][-1]:.4f}")
+                    else:
+                        print("\n")
+                        
+
+    # Print profiling results
+    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+
+    return history
+
 
 
 
