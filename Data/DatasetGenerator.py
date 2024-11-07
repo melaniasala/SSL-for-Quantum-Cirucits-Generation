@@ -1,38 +1,56 @@
 import json
 import pickle
 import random
+import time
 from math import ceil
+import os
 
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
-from qiskit import Aer, execute
+from qiskit.quantum_info import Statevector
+from QuantumCircuitGraph import QuantumCircuitGraph
+from RandomCircuitGenerator import RandomCircuitGenerator
 
-from .QuantumCircuitGraph import QuantumCircuitGraph
-from .RandomCircuitGenerator import RandomCircuitGenerator
 
-
-class QuantumCircuitDataset:
-    def __init__(self, circuit_generator=None, dataset_size=100, save_format='json', graph_config=None):
+class DatasetGenerator:
+    def __init__(self, circuit_generator=None, save_format='json', graph_config=None, save_path='dataset.json'):
         """
         Initialize the QuantumCircuitDataset class with parameters.
 
         Parameters:
         circuit_generator (RandomCircuitGenerator): Instance of the RandomCircuitGenerator class to generate circuits.
-        dataset_size (int): Number of circuits to include in the dataset.
         save_format (str): Format to save the dataset in, default is 'json'.
+        graph_config (dict): Optional configuration for the graph representation of quantum circuits.
+        save_path (str): Path to save the dataset incrementally.
         """
         self.circuit_generator = circuit_generator if circuit_generator is not None else RandomCircuitGenerator()
-        self.dataset_size = dataset_size
         self.save_format = save_format
         self.dataset = []
-        self.qcg_dataset = []
-        self.statevectors = {} 
+        self.statevectors = {}
+        self.save_path = save_path
+        self.generation_progress = {}  # To track circuits generated for each qubit count
 
         if graph_config is not None:
             self.set_graph_config(graph_config)
+        
+        # Load existing dataset if it exists
+        self._load_existing_dataset()
 
-    def generate_dataset(self, dataset_size, qubit_range=(2, 5), depth_range=(2, 10), max_gates=None):
+    def _load_existing_dataset(self):
+        """Load an existing dataset from file if it exists, allowing resumption."""
+        if os.path.exists(self.save_path):
+            with open(self.save_path, 'r') as file:
+                saved_data = json.load(file)
+                self.dataset = [QuantumCircuitGraph.from_dict(data) for data in saved_data.get('dataset', [])]
+                self.generation_progress = saved_data.get('generation_progress', {})
+                self.statevectors = saved_data.get('statevectors', {})  
+            print(f"Loaded {len(self.dataset)} previously generated circuits from {self.save_path}.")
+        else:
+            print("No existing dataset found, starting fresh.")
+
+
+    def generate_dataset(self, dataset_size=None, qubit_range=(2, 5), depth_range=(2, 10), max_gates=None, circuits_per_qubit=None, save_interval=10):
         """
         Generate a dataset of random quantum circuits.
 
@@ -40,39 +58,65 @@ class QuantumCircuitDataset:
         dataset_size (int): Total number of circuits to generate in the dataset.
         qubit_range (tuple): Range of qubits (min, max) for the circuits.
         depth_range (tuple): Range of depth (min, max) for the circuits.
-        max_gates (int or str): Maximum number of gates allowed per circuit. 
+        max_gates (int or str): Maximum number of gates allowed per circuit.
                                 Can be an integer or a string like 'exponential'.
+        circuits_per_qubit (dict): Optional dictionary specifying the number of circuits to generate for each qubit count.
+                                   Example: {2: 10, 3: 15, 4: 20}.
+        save_interval (int): Interval for incremental saving, in terms of number of circuits generated.
         """
         min_qubits, max_qubits = qubit_range
         min_depth, max_depth = depth_range
+
+        # Determine the number of circuits per qubit count if not specified
+        if circuits_per_qubit is None:
+            num_qubit_values = max_qubits - min_qubits + 1
+            circuits_per_qubit = {q: dataset_size // num_qubit_values for q in range(min_qubits, max_qubits + 1)}
         
-        # Number of circuits to generate for each qubit value
-        num_qubit_values = max_qubits - min_qubits + 1
-        circuits_per_qubit = dataset_size // num_qubit_values
+        circuit_data = []
 
-        for num_qubits in range(min_qubits, max_qubits + 1):
-            generated_count = 0
-            while generated_count < circuits_per_qubit:
-                # Select a random depth within the provided range
+        for num_qubits, count in circuits_per_qubit.items():
+            # Load progress or initialize if starting fresh
+            generated_count = self.generation_progress.get(num_qubits, 0)
+            remaining_count = count - generated_count
+            print(f"Generating {remaining_count} more circuits for {num_qubits} qubits (already generated {generated_count}).")
+            
+            while generated_count < count:
                 depth = random.randint(min_depth, max_depth)
-
-                # Handle max_gates based on qubits if it's a string
-                if isinstance(max_gates, str):
-                    max_gates_value = self.compute_max_gates(num_qubits, max_gates)
-                else:
-                    max_gates_value = max_gates
+                max_gates_value = self.compute_max_gates(num_qubits, max_gates) if isinstance(max_gates, str) else max_gates
 
                 # Generate the circuit
-                circuit = self.circuit_generator.generate_circuit(num_qubits=num_qubits, depth=depth, max_gates=max_gates_value)
+                start_time = time.time()
+                circuit, num_gates = self.circuit_generator.generate_circuit(num_qubits=num_qubits, depth=depth, max_gates=max_gates_value, return_num_gates=True)
                 qcg = QuantumCircuitGraph(circuit)
-                
-                # Perform checks 
-                if self.check_equivalence(circuit) and self.check_connectivity(qcg.graph):
-                    # If the circuit passes checks, add it to the dataset
-                    self.dataset.append(qcg)
+
+                # Check connectivity and equivalence before adding
+                if self.check_connectivity(qcg.graph) and self.check_equivalence(circuit):
                     generated_count += 1
+                    self.dataset.append(qcg)
+                    time_taken = time.time() - start_time
+
+                    circuit_data.append({
+                        'generation_time': time_taken,
+                        'num_qubits': num_qubits,
+                        'num_gates': num_gates,
+                        'depth': depth
+                    })
+
+                    # Save incrementally every `save_interval` circuits
+                    print(len(self.dataset), save_interval)
+                    if len(self.dataset) % save_interval == 0:
+                        self.save_dataset(include_statevectors=True)
+
+                    print(f"Added circuit {generated_count}/{count} for {num_qubits} qubits. Time: {time_taken:.4f}s")
+                else:
+                    print("Circuit failed checks, retrying generation...")
+
+            print(f"Completed {count} circuits for {num_qubits} qubits. Total circuits: {len(self.dataset)}")
 
         print(f"Dataset generated with {len(self.dataset)} circuits.")
+        self.save_dataset()
+        print(f"Dataset saved successfully to {self.save_path}.")
+        return circuit_data
 
 
     def check_equivalence(self, circuit):
@@ -84,19 +128,18 @@ class QuantumCircuitDataset:
         2. Check if the statevector has complex entries.
         3. Sort and compare the statevector with others of the same length in the dataset.
         """
-        # Simulate the statevector for the circuit
-        backend = Aer.get_backend('statevector_simulator')
-        job = execute(circuit, backend)
-        result = job.result()
-        statevector = np.array(result.get_statevector())
+        # Compute the statevector for the circuit
+        statevector = Statevector(circuit).data
 
-        # Check if any complex entries are in the statevector
-        if any(np.iscomplex(statevector)):
-            print("Warning: Circuit has complex entries in the statevector, failing the equivalence check: equivalence check for complex statevectors not supported.")
-            return False
+        # Set absolute and relative tolerances for the comparison
+        atol = 1e-8
+        rtol = 1e-5
 
-        # Sort the statevector entries
-        ordered_statevector = np.sort(statevector)
+        # Compute the probabilities for the statevector
+        probabilities = np.abs(statevector) ** 2
+
+        # Sort the statevector entries (modulus squared) in ascending order
+        ordered_statevector = np.sort(probabilities) 
 
         # Get the number of qubits in the circuit
         num_qubits = circuit.num_qubits
@@ -110,21 +153,28 @@ class QuantumCircuitDataset:
         # Compare the sorted statevector with each one in the dataset
         for sv in dataset_statevectors:
             # Compare within a given tolerance
-            if not np.allclose(ordered_statevector, sv, atol=1e-5):
+            if not np.allclose(ordered_statevector, sv, atol=atol, rtol=rtol):
                 # If at least one entry is different, the circuits are not equivalent: the check goes on
                 continue
             else:
                 # Circuits are equivalent, fail the check
+                print("Warning: Circuit is equivalent to another in the dataset, failing the equivalence check.")
                 return False
 
         # If no equivalent circuit was found, pass the check and store the statevector
         self.statevectors.setdefault(num_qubits, []).append(ordered_statevector)
+        print("Circuit is not equivalent to any other in the dataset, passing the equivalence check.")
         return True
 
     def check_connectivity(self, graph):
         """
         Check if the graph associated to the generated quantum circuit is connected.
         """
+        if nx.is_weakly_connected(graph):
+            print("Circuit graph is connected, passing the connectivity check.")
+        else:
+            print("Warning: Circuit graph is not connected, failing the connectivity check.")
+        
         return nx.is_weakly_connected(graph)
 
     def compute_max_gates(self, num_qubits, strategy):
@@ -158,40 +208,57 @@ class QuantumCircuitDataset:
 
     def save_dataset(self, file_path=None, include_statevectors=False):
         """
-        Save the dataset of circuits and associated graphs to a file.
-        
+        Save the dataset, generation progress, and optionally statevectors to a file.
+
         Parameters:
         file_path (str): Path where the dataset will be saved.
+        include_statevectors (bool): Whether to include statevectors in the saved dataset.
         """
-        
+        # Prepare dataset content
+        dataset_content = {
+            'dataset': self.dataset,
+            'generation_progress': self.generation_progress
+        }
         if include_statevectors:
-            dataset_to_save = {
-                'dataset': self.dataset,
-                'statevectors': self.statevectors
-            }
-        else:
-            dataset_to_save = self.dataset
-
-        extension = 'json' if self.save_format == 'json' else 'pkl'
-
-        if file_path is None:
-            file_path = f"dataset_{self.dataset_size}.{extension}"
+            dataset_content['statevectors'] = self.statevectors
         
+        # Define file path with appropriate format extension
+        file_path = file_path or self._generate_file_path()
+
+        # Save the dataset based on the chosen format
+        save_successful = self._save_to_file(file_path, dataset_content)
+        
+        if save_successful:
+            print(f"Dataset successfully saved to {file_path}")
+        else:
+            print("Failed to save dataset.")
+
+
+    def _generate_file_path(self):
+        """Generate a file path with the correct format extension."""
+        extension = {'json': 'json', 'pickle': 'pkl'}.get(self.save_format, 'txt')
+        return f"dataset_{len(self.dataset)}.{extension}"
+
+
+    def _save_to_file(self, file_path, data):
+        """Save data to file based on the format specified."""
         try:
             if self.save_format == 'json':
                 with open(file_path, 'w') as file:
-                    json.dump(dataset_to_save, file, indent=4)
+                    json.dump(data, file, indent=4)
             elif self.save_format == 'pickle':
                 with open(file_path, 'wb') as file:
-                    pickle.dump(dataset_to_save, file)
-            
-            print(f"Dataset successfully saved to {file_path}")
-        
+                    pickle.dump(data, file)
+            else:
+                with open(file_path, 'w') as file:
+                    file.write(str(data))  # Fall back to a text-based save
+            return True  # Indicate successful save
         except Exception as e:
-            print(f"Failed to save dataset: {str(e)}")
+            print(f"Error saving dataset: {str(e)}")
+            return False  # Indicate failed save
 
 
-    def visualize_circuit(self, index=0, graph_visual_mode='circuit-like'):
+    def visualize_circuit(self, index=None, graph_visual_mode='circuit-like'):
         """
         Visualize a specific circuit or its corresponding graph from the dataset.
 
@@ -204,6 +271,9 @@ class QuantumCircuitDataset:
         
         If the index is out of range, an error message will be displayed.
         """
+        if not index:
+            # random index if not provided
+            index = random.randint(0, len(self.dataset) - 1)
         if index >= len(self.dataset):
             print(f"Index {index} is out of range. There are {len(self.dataset)} circuits in the dataset.")
             return
@@ -212,7 +282,7 @@ class QuantumCircuitDataset:
             self.dataset[index].circuit.draw(output='mpl')
 
         elif graph_visual_mode == 'circuit-like':
-            self.dataset[index].draw_circuit_like_graph(circuit_like_graph=True)
+            self.dataset[index].draw_circuit_and_graph(circuit_like_graph=True)
 
         elif graph_visual_mode == 'graph':
             self.dataset[index].draw_circuit_and_graph(circuit_like_graph=False)
@@ -234,18 +304,18 @@ class QuantumCircuitDataset:
         
         # Adjust number of samples if more requested than available
         num_samples = min(num_samples, len(self.dataset))
-        visual_mode = True if graph_visual_mode == 'circuit-like' else False
+        visual_mode = {'circuit-like': True, 'graph': False}
 
         if graph_visual_mode:
-            samples_per_row = 3
+            samples_per_row = 1
             columns = 2 * samples_per_row  # Each sample gets 2 subplots (circuit and graph)
         else:
-            samples_per_row = 5
+            samples_per_row = 2
             columns = samples_per_row  # Only circuits are visualized
 
         rows = ceil(num_samples / samples_per_row)
-        add_height = 2
-        fig, axs = plt.subplots(rows, columns, figsize=(15, num_samples + add_height*(1/(rows)**2)))
+        add_height = 5
+        fig, axs = plt.subplots(rows, columns, figsize=(15, num_samples*4 + add_height*(1/(rows)**2)))
 
         if rows == 1:
             axs = np.expand_dims(axs, axis=0)
@@ -256,12 +326,16 @@ class QuantumCircuitDataset:
             
             if graph_visual_mode:
                 col_start = 2 * col  # Circuit on one, graph on the next
-                self.dataset[i].draw_circuit_and_graph(circuit_like_graph=visual_mode, axs=axs[row, col_start:col_start + 2])
+                self.dataset[i].draw_circuit_and_graph(
+                    circuit_like_graph=visual_mode[graph_visual_mode], 
+                    axes=axs[row, col_start:col_start + 2],
+                    titles=False
+                )
             else:
                 # Circuit-only visualization
-                self.dataset[i].circuit.draw(output='mpl', ax=axs[row, col])
+                self.dataset[i].quantum_circuit.draw(output='mpl', ax=axs[row, col])
 
 
-            plt.tight_layout()
-            plt.axis('off')
-            plt.show()
+        plt.tight_layout()
+        plt.axis('off')
+        plt.show()
