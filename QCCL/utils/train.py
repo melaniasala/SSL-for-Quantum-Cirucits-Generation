@@ -138,9 +138,10 @@ def train_with_profiling(model, train_dataset, val_dataset=None, epochs=100, bat
                     else:
                         print("\n")
                         
+            prof.step()
 
     # Print profiling results
-    print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
+    print(prof.key_averages().table(sort_by="cuda_time_total"))
 
     return history
 
