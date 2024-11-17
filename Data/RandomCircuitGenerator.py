@@ -8,11 +8,9 @@ from qiskit.circuit.library.standard_gates import (IGate, U1Gate, U2Gate, U3Gate
 from qiskit.exceptions import QiskitError
 import numpy as np
 import random
-from math import ceil
-import matplotlib.pyplot as plt
 
 class RandomCircuitGenerator:
-    def __init__(self, gate_pool=None, max_depth=None, max_gates=None, qubits_range=(3,20)):
+    def __init__(self, gate_pool=None, max_depth=None, qubits_range=(3,20)):
         """
         Initialize the RandomCircuitGenerator with parameters.
         
@@ -25,10 +23,9 @@ class RandomCircuitGenerator:
         """
         self.gate_pool = gate_pool or [HGate, XGate, ZGate, CXGate, TGate]
         self.max_depth = max_depth
-        self.max_n_gates = max_gates
         self.qubits_range = qubits_range
 
-    def generate_circuit(self, num_qubits=None, depth=None):
+    def generate_circuit(self, num_qubits=None, depth=None, max_gates=None, seed=None, return_num_gates=False, verbose=False):
         """
         Generate a single random quantum circuit using the specified gate pool.
         
@@ -39,6 +36,10 @@ class RandomCircuitGenerator:
         Returns:
         QuantumCircuit: A randomly generated quantum circuit.
         """
+        # set random seed if provided
+        if seed:
+            random.seed(seed)
+
         num_qubits = num_qubits or random.randint(*self.qubits_range)
 
         if depth is None:
@@ -47,13 +48,13 @@ class RandomCircuitGenerator:
             depth = self.max_depth
 
         # max_operands=2 ensures that only 1 or 2 qubit gates are used
-        circuit = random_circuit(num_qubits, depth, max_operands=2, op_list=self.gate_pool)
-
-        return circuit
+        if return_num_gates:
+            return random_circuit(num_qubits, depth, max_gates=max_gates, max_operands=2, op_list=self.gate_pool, return_num_gates=return_num_gates)
+        return random_circuit(num_qubits, depth, max_gates=max_gates, max_operands=2, op_list=self.gate_pool)
     
 
 
-    def generate_circuits(self, n_samples, qubit_range=None, depth_range=None, max_gates=None):
+    def generate_circuits(self, n_samples, qubit_range=None, depth_range=None, max_gates=None, seed=None):
         """
         Generate a specified quantity of random quantum circuits.
         
@@ -62,10 +63,14 @@ class RandomCircuitGenerator:
         qubit_range (tuple): Range of qubits (min, max). If max is None, defaults to instance's num_qubits.
         depth_range (tuple): Range of depth (min, max). If max is None, defaults to instance's max_depth.
         """
+        # set random seed if provided
+        if seed:
+            random.seed(seed)
+
         if isinstance(qubit_range, int):
             min_qubits = max_qubits = qubit_range
         elif qubit_range is None:
-            min_qubits = max_qubits = self.qubits_range
+            min_qubits, max_qubits = self.qubits_range
         else:
             min_qubits, max_qubits = qubit_range
 
@@ -77,15 +82,13 @@ class RandomCircuitGenerator:
         else:
             min_depth, max_depth = depth_range
 
-        if max_gates is None:
-            max_gates = self.max_gates
-
+        print(f"Generating {n_samples} random circuits with qubits in range {min_qubits}-{max_qubits} and depth in range {min_depth}-{max_depth}...\n")
 
         circuits = []
         for _ in range(n_samples):
             num_qubits = random.randint(min_qubits, max_qubits)
             depth = random.randint(min_depth, max_depth)
-            circuit = self.generate_circuit(num_qubits, depth)
+            circuit = self.generate_circuit(num_qubits, depth, max_gates=max_gates)
             circuits.append(circuit)
         
         return circuits
@@ -93,7 +96,7 @@ class RandomCircuitGenerator:
 
 
 
-def random_circuit(num_qubits, depth, max_gates=None, max_operands=2, seed=None, op_list=None):  
+def random_circuit(num_qubits, depth, max_gates=None, max_operands=2, seed=None, op_list=None, return_num_gates=False, verbose=False):
     """Generate random circuit of arbitrary size and form, with a maximum number of gates.
 
     Modified from qiskit.circuit.random.random_circuit to allow for custom gate pools and
@@ -114,6 +117,8 @@ def random_circuit(num_qubits, depth, max_gates=None, max_operands=2, seed=None,
     Raises:
         CircuitError: when invalid options given
     """
+    if seed is not None:
+        np.random.seed(seed)
     
     if max_operands < 1 or max_operands > 3:
         raise QiskitError("max_operands must be between 1 and 3")
@@ -152,17 +157,21 @@ def random_circuit(num_qubits, depth, max_gates=None, max_operands=2, seed=None,
     prob_unconnected = 1.0
     gate_count = 0
 
-    print(f"Generating random circuit with {num_qubits} qubits and depth {depth}...\n")
+    if verbose:
+        print(f"Generating random circuit with {num_qubits} qubits and depth {depth}...")
 
     # apply arbitrary random operations at every depth
     for d in range(depth):
+        # print(f"Depth {d + 1}/{depth}:")
         if max_gates is not None and gate_count >= max_gates:
-            print(f"Maximum number of gates ({max_gates}) reached, stopping early.")
+            if verbose:
+                print(f"Maximum number of gates ({max_gates}) reached, stopping early.")
             break
         # choose how many qubits and which ones will be used in this layer
         if rng.random() < prob_unconnected:
-            print("Forcing 2 or more qubit gates to connect qubits.")
-            n_active_qubits = rng.integers(2, num_qubits + 1)
+            min_q = max(2, (num_qubits - len(connected_qubits)) - (depth - d))
+            # print(f"Forcing at least {min_q} active qubits.")
+            n_active_qubits = rng.integers(min_q, num_qubits + 1)
         else:
             n_active_qubits = rng.integers(1, num_qubits + 1)
 
@@ -171,7 +180,7 @@ def random_circuit(num_qubits, depth, max_gates=None, max_operands=2, seed=None,
         # apply random operations until all qubits have been used
         while n_active_qubits - len(active_qubits) > 0:
             # Increase probability for two-qubit gates as depth increases
-            prob_unconnected = 0 if len(connected_qubits) == num_qubits else 1 - 0.1 * len(connected_qubits) / num_qubits
+            prob_unconnected = 0 if len(connected_qubits) == num_qubits else 1 - 0.2 * len(connected_qubits) / num_qubits
             two_q_gate_prob = (d + 1) / depth * prob_unconnected
 
             # choose number of operands for the operation
@@ -233,4 +242,6 @@ def random_circuit(num_qubits, depth, max_gates=None, max_operands=2, seed=None,
 
             gate_count += 1
 
+    if return_num_gates:
+        return qc, gate_count
     return qc
