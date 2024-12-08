@@ -9,7 +9,7 @@ from qiskit.circuit.library.standard_gates import IGate
 from qiskit.circuit.barrier import Barrier
 from qiskit.transpiler.passes import RemoveBarriers
 import qiskit.dagcircuit.dagnode as dagnode
-from data_preprocessing import encode_sequence, build_graph_from_circuit, draw_circuit_and_graph, build_node_features_vector, process_gate, insert_node
+from Data.data_preprocessing import encode_sequence, build_graph_from_circuit, draw_circuit_and_graph, build_node_features_vector, process_gate, insert_node
 
 
 class QuantumCircuitGraph:
