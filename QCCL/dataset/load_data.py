@@ -26,14 +26,19 @@ def load_data(data_dir='../dataset/raw/', file_name=None, subset=None, split_cir
     else:  # Handle single file case
         file_path = os.path.join(data_dir, file_name)
         with open(file_path, 'rb') as f:
-            dataset = pickle.load(f)
-        if file_name == 'handcrafted_dataset.pkl' and subset is not None:
-            dataset = dataset[subset]
-            print(f"Loaded {len(dataset)} elements from subset {subset}:")
-        dataset = collect_from_dict(dataset) if file_name == 'handcrafted_dataset.pkl' else dataset
+            data = pickle.load(f)
+        if file_name == 'handcrafted_dataset.pkl':
+            if subset is not None:
+                data = data[subset]
+                print(f"Loading data from subset {subset}...")
+            dataset = collect_from_dict(data)
+        else:
+            dataset = data['dataset']
+        print(dataset)
 
     # Process the dataset
     for sample in dataset:
+        print(sample)
         if sample.__class__.__name__ == "QuantumCircuitGraph":  # Single QuantumCircuitGraph object
             if split_circuit_graph:
                 qc = sample.quantum_circuit
