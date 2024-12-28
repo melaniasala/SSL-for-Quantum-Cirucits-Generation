@@ -44,11 +44,11 @@ def validate(model, val_loader, loss_fun, device='cuda'):
 
 
 
-def train_with_profiling(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=1e-3, tau=0.5, device='cuda', 
+def train_with_profiling(model, loss, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=1e-3, tau=0.5, device='cuda', 
                          ema_alpha=1.0, patience=None, restore_best=False, verbose=True):
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
     optimizer = Adam(model.parameters(), lr=lr)
-    nt_xent_loss = NTXentLoss(tau)
+    nt_xent_loss = loss(tau)
     ema_loss = False if ema_alpha == 1.0 else True
 
     history = {
@@ -150,7 +150,7 @@ def train_with_profiling(model, train_dataset, val_dataset=None, epochs=100, bat
 
 def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=1e-3, tau=0.5, device='cuda', 
           ema_alpha=1.0, patience=None, restore_best=False, verbose=True):
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
     # print("Train loader created.")
     optimizer = Adam(model.parameters(), lr=lr)
     nt_xent_loss = NTXentLoss(tau)
@@ -167,7 +167,7 @@ def train(model, train_dataset, val_dataset=None, epochs=100, batch_size=32, lr=
         history['ema_val_loss'] = []
 
     if val_dataset:
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
         # print("Validation loader created.")
 
     # Initialize variables for early stopping
@@ -338,7 +338,7 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
 
     ema_loss = False if ema_alpha == 1.0 else True
     print("EMA Loss: ", ema_loss)
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
     optimizer = Adam(online_model.parameters(), lr=lr, weight_decay=1e-1)
     mse_loss = MSELoss()
     # cosine_similarity = CosineSimilarity()
@@ -357,7 +357,7 @@ def train_byol(model, train_dataset, val_dataset=None, epochs=100, batch_size=32
         history['avg_grad_norm_l1_per_param'] = []
 
     if val_dataset:
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
 
     # Initialize variables for early stopping
     if patience is None or patience == 'None':
