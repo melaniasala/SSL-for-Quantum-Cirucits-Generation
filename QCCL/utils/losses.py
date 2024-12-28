@@ -15,7 +15,7 @@ class NTXentLoss(nn.Module):
         N = z1.size(0)
 
         # if print_flag: 
-        print("Input representations:\n", representations)
+        # print("Input representations:\n", representations)
         
         # Compute the cosine similarity matrix for all pairs of embeddings
         similarity_matrix = representations @ representations.t() # Shape: (2N, 2N) 
@@ -35,8 +35,8 @@ class NTXentLoss(nn.Module):
         negatives = similarity_matrix[~combined_mask].view(N * 2, -1)  # Shape: (2N, 2N-2)
         positives = similarity_matrix[positive_mask].view(N * 2, 1)  # Shape: (2N, 1)
         # if print_flag:
-        print("Positive pairs scores:\n", positives)
-        print("Negative pairs scores:\n", negatives)
+        # print("Positive pairs scores:\n", positives)
+        # print("Negative pairs scores:\n", negatives)
 
         loss_pos_pairs = -torch.log(torch.exp(positives / self.temperature) / 
                                     (torch.exp(positives / self.temperature) + torch.sum(torch.exp(negatives / self.temperature), dim=1).view(2*N, -1)))
