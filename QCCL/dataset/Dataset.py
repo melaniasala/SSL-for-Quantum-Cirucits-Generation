@@ -9,7 +9,7 @@ from torch_geometric.data import Data
 class GraphDataset(Dataset):
     def __init__(self, qc_graphs, pre_paired=False, num_transformations=2):
         """
-        graphs: List of graphs or list of lists of paired NetworkX graphs.
+        graphs: List of QuantumCircuitGraph objects or list of lists of paired QuantumCircuitGraph objects.
         transform: Transformations to apply for augmentation (only used if pre_paired is False).
         pre_paired: Boolean flag to indicate if the dataset contains pre-paired graphs.
         """
