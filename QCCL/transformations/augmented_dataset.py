@@ -8,6 +8,7 @@ from io import StringIO
 from datetime import datetime
 from QCCL.transformations import NoMatchingSubgraphsError, CompositeTransformation, TransformationError
 import sys
+from tqdm import tqdm
 
 # Define your available transformations
 transformation_pool = [
@@ -23,7 +24,7 @@ transformation_pool = [
                 "swap_cnots"
                 ]
 
-def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None):
+def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None, chunk_size=None):
     """Main function to generate augmented dataset."""
     sys.path.append("../../Data")
     
@@ -35,8 +36,13 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
         data = pickle.load(f)
     n_qubits = list(data["generation_progress"].keys())[0]
     dataset_size = data["generation_progress"][n_qubits]
-    dataset = data["dataset"]
     statevectors = data["statevectors"]
+
+    # Load dataset in chunks if specified
+    if chunk_size:
+        dataset = data["dataset"][:chunk_size]
+    else:
+        dataset = data["dataset"]
 
     # Create output directory if it doesn't exist
     if not output_dir:
@@ -78,7 +84,16 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
     data_path = os.path.join(output_dir, data_file) if output_dir else data_file
 
     # Process samples
-    for idx, sample in enumerate(dataset):
+    for idx in range(dataset_size):
+        # Load next chunk if needed
+        if chunk_size and idx % chunk_size == 0 and idx > 0:
+            chunk_start = idx
+            chunk_end = min(idx + chunk_size, dataset_size)
+            print("-" * 80)
+            print(f"Loading chunk {idx//chunk_size + 1}/{dataset_size//chunk_size} (from sample {chunk_start} to {chunk_end})...")
+            dataset = data["dataset"][chunk_start:chunk_end]
+        sample = dataset[idx%chunk_size] if chunk_size else dataset[idx]
+
         print("-" * 80)
         print(f"Processing sample {idx+1}/{dataset_size} (sample_id: {idx})...")
         if str(idx) in metadata["logs"]["samples"]:
@@ -165,8 +180,9 @@ def augment(sample, transformations, dictionary):
     """Apply transformations to a sample and log results."""
     successful_transformations = {}
     view_idx = 1
+    unsuc_log = str()
 
-    for t_1 in transformations:
+    for t_1 in tqdm(transformations, desc="Producing augmented views"):
         try:
             with contextlib.redirect_stdout(StringIO()), contextlib.redirect_stderr(StringIO()):
                 transformed = CompositeTransformation(sample, [t_1]).apply()
@@ -178,11 +194,10 @@ def augment(sample, transformations, dictionary):
             successful_transformations[f"{view_idx}"] = t_1
             view_idx += 1
         except NoMatchingSubgraphsError:
-            print(f"No matching subgraphs found for {t_1}: moving on to the next transformation.")
+            unsuc_log += f"No matching subgraphs found for {t_1}: moving on to the next transformation.\n"
             continue
         except TransformationError as e:
-            print(f"Transformation error for {t_1}.")
-            print(f"Exception details: {str(e)}")
+            unsuc_log += f"Transformation error for {t_1}. Exception details: {str(e)}\n"
             continue
 
         for t_2 in transformations:
@@ -197,12 +212,14 @@ def augment(sample, transformations, dictionary):
                 successful_transformations[f"{view_idx}"] = f"{t_1}, {t_2}"
                 view_idx += 1
             except NoMatchingSubgraphsError:
-                print(f"No matching subgraphs found for {t_1}, {t_2}: moving on to the next transformation.")
+                unsuc_log += f"No matching subgraphs found for {t_1}, {t_2}: moving on to the next transformation.\n"
                 continue
             except TransformationError as e:
-                print(f"Transformation error for {t_1}, {t_2}.")
-                print(f"Exception details: {str(e)}")
+                unsuc_log += f"Transformation error for {t_1}, {t_2}. Exception details: {str(e)}\n"
                 continue
+
+    if unsuc_log:
+        print(unsuc_log) 
 
     return successful_transformations
 
