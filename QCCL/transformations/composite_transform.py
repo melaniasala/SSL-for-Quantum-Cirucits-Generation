@@ -1,5 +1,4 @@
 import random
-import traceback
 from .transforms import CircuitTransformation, NoMatchingSubgraphsError, TransformationError
 from Data.QuantumCircuitGraph import QuantumCircuitGraph
 from .factory import TransformationFactory
@@ -28,9 +27,10 @@ class CompositeTransformation(CircuitTransformation):
             # Apply the transformation to the graph
             try:
                 transformed_qcg = transformation.apply()
-            except (NoMatchingSubgraphsError, TransformationError) as e:
-                print(f"Skipping transformation '{transformation_type}' due to error: {e}")
-                continue  # Continue with the next transformation even if one fails
+            except TransformationError as e:
+                raise e 
+            except NoMatchingSubgraphsError as e:
+                raise e
 
         # Return the modified quantum circuit graph
         return transformed_qcg
@@ -91,8 +91,8 @@ class RandomCompositeTransformation(CircuitTransformation):
             #     # Print detailed error information and stop computation
             #     print(f"Failed to apply transformation '{transformation_type}' due to error: {e}")
             #     raise  # Re-raise the exception to halt the execution
-            except (NoMatchingSubgraphsError, TransformationError) as e:
-                print(f"Skipping transformation '{transformation_type}' due to error: {e}")
+            except (NoMatchingSubgraphsError, TransformationError): #as e:
+                # print(f"Skipping transformation '{transformation_type}' due to error: {e}")
                 continue
 
             trials += 1  # Increment the number of attempts
