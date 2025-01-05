@@ -23,7 +23,7 @@ transformation_pool = [
                 "swap_cnots"
                 ]
 
-def generate_augmented_dataset(input_file, transformations=None, output_file=None, save_interval=1, metadata_file=None):
+def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None):
     """Main function to generate augmented dataset."""
     sys.path.append("../../Data")
     
@@ -38,14 +38,20 @@ def generate_augmented_dataset(input_file, transformations=None, output_file=Non
     dataset = data["dataset"]
     statevectors = data["statevectors"]
 
+    # Create output directory if it doesn't exist
+    if not output_dir:
+        output_dir = f"augmented_dataset_{n_qubits}_qubits"
+    os.makedirs(output_dir, exist_ok=True)
+
     # Save statevectors and free memory
-    statevectors_dir = save_statevectors(statevectors, n_qubits)
+    statevectors_dir = save_statevectors(statevectors, n_qubits, output_dir)
     del statevectors
 
     # Load or initialize metadata
-    metadata_file = metadata_file or f"metadata_{n_qubits}_qubits.json"
-    if os.path.exists(metadata_file):
-        with open(metadata_file, "r") as metadata_f:
+    metadata_file = f"metadata_{n_qubits}_qubits.json"
+    metadata_path = os.path.join(output_dir, metadata_file) if output_dir else metadata_file
+    if os.path.exists(metadata_path):
+        with open(metadata_path, "r") as metadata_f:
             metadata = json.load(metadata_f)
         metadata = json.loads(metadata)
     else:
@@ -68,19 +74,23 @@ def generate_augmented_dataset(input_file, transformations=None, output_file=Non
         }
 
     # Load or initialize augmented dataset
-    output_file = output_file or f"augmented_dataset_{n_qubits}_qubits.pkl"
-    if os.path.exists(output_file):
-        with open(output_file, "rb") as f:
+    data_file = f"augmented_dataset_{n_qubits}_qubits.pkl"
+    data_path = os.path.join(output_dir, data_file) if output_dir else data_file
+    if os.path.exists(data_path):
+        with open(data_path, "rb") as f:
             augmented_dataset = pickle.load(f)
     else:
         augmented_dataset = []
 
     # Process samples
     for idx, sample in enumerate(dataset):
+        print("-" * 80)
         print(f"Processing sample {idx}/{dataset_size}...")
         if str(idx) in metadata["logs"]["samples"]:
-            print(f"Sample {idx} already processed. Skipping...")
+            print(f"Sample {idx} already processed. Skipping...\n")
             continue
+        else:
+            print()
 
         # Initialize sample log and views
         metadata["logs"]["samples"][f"{idx}"] = {"successfully_applied": [], "successful_count": 0}
@@ -114,13 +124,12 @@ def generate_augmented_dataset(input_file, transformations=None, output_file=Non
         metadata["dataset_info"]["num_samples"] += 1
         metadata["dataset_info"]["num_views"] += len(successful_transformations)
 
-        print(metadata)
         # Save progress periodically
         if idx % save_interval == 0:
-            save_progress(output_file, augmented_dataset, metadata_file, metadata)
+            save_progress(data_path, augmented_dataset, metadata_path, metadata)
 
     # Final save
-    save_progress(output_file, augmented_dataset, metadata_file, metadata)
+    save_progress(data_path, augmented_dataset, metadata_path, metadata)
     print("Augmented dataset generation completed.")
 
     # Cleanup
@@ -131,19 +140,20 @@ def generate_augmented_dataset(input_file, transformations=None, output_file=Non
     
 
 
-def save_statevectors(statevectors, n_qubits):
+def save_statevectors(statevectors, n_qubits, directory):
     """Save statevectors as a compressed .npz file and separate .npy files."""
     # Save all statevectors as a single compressed .npz file
-    filename = f"statevectors_{n_qubits}_qubits.npz"
-    np.savez_compressed(filename, *statevectors)
-    print(f"Statevectors saved to {filename} (compressed)")
+    filename = f"statevectors_{n_qubits}_qubits.npz" 
+    file_path = os.path.join(directory, filename) if directory else filename
+    np.savez_compressed(file_path, *statevectors)
+    print(f"Statevectors saved to file {file_path} (compressed)")
 
     # Save individual statevectors as .npy files in a directory
-    directory = f"statevectors_{n_qubits}_qubits"
+    directory = os.path.join(directory, f"statevectors_{n_qubits}_qubits") if directory else f"statevectors_{n_qubits}_qubits"
     os.makedirs(directory, exist_ok=True)
     for idx, sv in enumerate(statevectors):
         np.save(os.path.join(directory, f"statevector_{idx}.npy"), sv)
-    print(f"Statevectors saved separately to {directory}")
+    print(f"Statevectors saved separately to directory {directory}\n")
 
     return directory
 
@@ -201,10 +211,11 @@ def save_progress(file_path, data, metadata_path, metadata):
     temp_file_path = file_path.replace('.pkl', '.tmp')
 
     try:
+        print("\nSaving progress...")
         save_to_file(file_path, data, '.pkl', temp_file_path)
         save_to_file(metadata_path, metadata, '.json')
 
-        print(f"Both {file_path} and {metadata_path} saved successfully.")
+        print(f"Both {file_path} and {metadata_path} saved successfully.\n")
 
         return True
 
@@ -239,7 +250,7 @@ def save_to_file(file_path, data, format=None, temp_file_path=None):
             
             # Rename temporary file to final destination
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            unique_path = f"{timestamp}_{file_path}"
+            unique_path = f"{file_path.replace('.pkl', '')}_{timestamp}.pkl"
             if os.path.exists(file_path): # Backup existing file
                 os.rename(file_path, unique_path)
             os.rename(temp_file_path, file_path) # Rename temporary file
@@ -251,5 +262,6 @@ def save_to_file(file_path, data, format=None, temp_file_path=None):
         return True  # Indicate successful save
     except Exception as e:
         print(f"Error saving dataset: {str(e)}")
-        return False  # Indicate failed save
+        # Stop execution and raise the exception
+        raise e
 
