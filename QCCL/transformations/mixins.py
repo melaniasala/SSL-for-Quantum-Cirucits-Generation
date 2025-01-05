@@ -149,7 +149,6 @@ class CommutationMixin:
             if self._count_gates(subgraph) != 2:
                 raise TransformationError("Subgraph must contain exactly two gates for commutation.")
         except AttributeError:
-            print(subgraph)
             raise
 
         # Identify predecessors and successors for each qubit, marking common qubits in the process
