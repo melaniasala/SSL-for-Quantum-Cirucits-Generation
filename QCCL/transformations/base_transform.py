@@ -42,7 +42,7 @@ class CircuitTransformation:
             self.create_replacement() # Step 3: Generate replacement subgraph
             return self.apply_transformation()  # Step 4: Attempt to apply the transformation
         except Exception as e:
-            raise TransformationError(f"An error occurred during the transformation: {e}")
+            raise TransformationError(e)
 
     def create_pattern(self):
         """Generate the pattern to be found."""
