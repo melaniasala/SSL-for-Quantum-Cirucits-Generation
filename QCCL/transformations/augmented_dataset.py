@@ -76,18 +76,13 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
     # Load or initialize augmented dataset
     data_file = f"augmented_dataset_{n_qubits}_qubits.pkl"
     data_path = os.path.join(output_dir, data_file) if output_dir else data_file
-    if os.path.exists(data_path):
-        with open(data_path, "rb") as f:
-            augmented_dataset = pickle.load(f)
-    else:
-        augmented_dataset = []
 
     # Process samples
     for idx, sample in enumerate(dataset):
         print("-" * 80)
-        print(f"Processing sample {idx}/{dataset_size}...")
+        print(f"Processing sample {idx+1}/{dataset_size} (sample_id: {idx})...")
         if str(idx) in metadata["logs"]["samples"]:
-            print(f"Sample {idx} already processed. Skipping...\n")
+            print(f"Sample {idx} already processed. Skipping...")
             continue
         else:
             print()
@@ -109,13 +104,17 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
 
         # Save statevector and views to the augmented dataset, and free memory
         statevector_path = os.path.join(statevectors_dir, f"statevector_{idx}.npy")
-        augmented_dataset.append({
-            "sample_id": idx,  # Add a unique identifier for each sample
+        sample_data = {
+            "sample_id": idx,
             "statevector": np.load(statevector_path).tolist(),
             "views": sample_views
-        })
+        }
+
         # Delete the statevector file to free up memory
         os.remove(statevector_path)
+
+        # Append sample to file
+        append_sample_to_file(data_path, sample_data)
 
         # Update logs in metadata
         metadata["logs"]["samples"][f"{idx}"]["successfully_applied"] = successful_transformations
@@ -145,15 +144,22 @@ def save_statevectors(statevectors, n_qubits, directory):
     # Save all statevectors as a single compressed .npz file
     filename = f"statevectors_{n_qubits}_qubits.npz" 
     file_path = os.path.join(directory, filename) if directory else filename
-    np.savez_compressed(file_path, *statevectors)
+    reduced_statevectors = [np.array(statevector, dtype=np.float16) for statevector in statevectors]
+    np.savez_compressed(file_path, *reduced_statevectors)
     print(f"Statevectors saved to file {file_path} (compressed)")
 
     # Save individual statevectors as .npy files in a directory
     directory = os.path.join(directory, f"statevectors_{n_qubits}_qubits") if directory else f"statevectors_{n_qubits}_qubits"
     os.makedirs(directory, exist_ok=True)
     for idx, sv in enumerate(statevectors):
-        np.save(os.path.join(directory, f"statevector_{idx}.npy"), sv)
+        compressed_statevector = np.array(sv, dtype=np.float16)
+        np.savez_compressed(os.path.join(directory, f"statevector_{idx}.npz"), compressed_statevector)
     print(f"Statevectors saved separately to directory {directory}\n")
+
+    # Free up memory
+    del statevectors
+    del compressed_statevector
+    del sv
 
     return directory
 
@@ -263,4 +269,23 @@ def save_to_file(file_path, data, format=None, temp_file_path=None):
         print(f"Error saving dataset: {str(e)}")
         # Stop execution and raise the exception
         raise e
+    
+
+def append_sample_to_file(file_path, sample):
+    """Append a single sample to the dataset file incrementally."""
+    try:
+        if not os.path.exists(file_path):
+            # Create a new file if it doesn't exist
+            with open(file_path, "wb") as f:
+                pickle.dump([sample], f)
+        else:
+            # Append to the existing file
+            with open(file_path, "rb") as f:
+                existing_data = pickle.load(f)
+            existing_data.append(sample)
+            with open(file_path, "wb") as f:
+                pickle.dump(existing_data, f)
+    except Exception as e:
+        print(f"Error while appending sample to file: {e}")
+        raise
 
