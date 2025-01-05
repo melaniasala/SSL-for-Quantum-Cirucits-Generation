@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
 from qiskit.quantum_info import Statevector
-from QuantumCircuitGraph import QuantumCircuitGraph
-from RandomCircuitGenerator import RandomCircuitGenerator
+from .QuantumCircuitGraph import QuantumCircuitGraph
+from .RandomCircuitGenerator import RandomCircuitGenerator
 
 
 class DatasetGenerator:
@@ -132,7 +132,7 @@ class DatasetGenerator:
                         'num_qubits': num_qubits,
                         'num_gates': num_gates,
                         'depth': depth
-                    })
+                    }) # TODO: do not only return, but also save
 
                     # Save incrementally every `save_interval` circuits
                     if len(self.dataset) % save_interval == 0:
