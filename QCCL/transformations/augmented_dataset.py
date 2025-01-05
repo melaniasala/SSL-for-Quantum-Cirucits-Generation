@@ -213,6 +213,7 @@ def save_progress(file_path, data, metadata_path, metadata):
     try:
         print("\nSaving progress...")
         save_to_file(file_path, data, '.pkl', temp_file_path)
+        print(f"Saved {file_path} successfully.")
         save_to_file(metadata_path, metadata, '.json')
 
         print(f"Both {file_path} and {metadata_path} saved successfully.\n")
@@ -221,8 +222,7 @@ def save_progress(file_path, data, metadata_path, metadata):
 
     except Exception as e:
         # Cleanup in case of failure
-        print("Error: Failed to save files atomically.")
-        print(f"Exception details: {str(e)}")
+        print(f"Error: Failed to save files. Exception details: {str(e)}")
         print(traceback.format_exc())
 
         if os.path.exists(temp_file_path):
@@ -231,8 +231,7 @@ def save_progress(file_path, data, metadata_path, metadata):
             os.remove(file_path)
         if os.path.exists(metadata_path):
             os.remove(metadata_path)
-
-        return False
+        raise e
 
 def save_to_file(file_path, data, format=None, temp_file_path=None):
     """Save data to file based on the format specified."""
