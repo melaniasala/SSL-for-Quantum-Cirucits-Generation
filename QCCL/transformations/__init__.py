@@ -1,6 +1,7 @@
 from .transforms import AddIdentityGatesTransformation, RemoveIdentityGatesTransformation, SwapControlTargetTransformation, CNOTDecompositionTransformation, ChangeOfBasisTransformation, ParallelXTransformation, ParallelZTransformation, CommuteCNOTRotationTransformation, CommuteCNOTsTransformation, SwapCNOTsTransformation
 from .composite_transform import CompositeTransformation, RandomCompositeTransformation
 from .factory import TransformationFactory
+from .base_transform import TransformationError, NoMatchingSubgraphsError
 
 __all__ = [
     'AddIdentityGatesTransformation',
@@ -16,5 +17,8 @@ __all__ = [
 
     'CompositeTransformation',
     'RandomCompositeTransformation',
-    'TransformationFactory'
+    'TransformationFactory',
+
+    'TransformationError',
+    'NoMatchingSubgraphsError'
 ]
