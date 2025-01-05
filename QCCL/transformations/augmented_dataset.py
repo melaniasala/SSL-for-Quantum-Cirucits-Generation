@@ -103,12 +103,13 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
         successful_transformations = augment(sample, transformations, sample_views)
 
         # Save statevector and views to the augmented dataset, and free memory
-        statevector_path = os.path.join(statevectors_dir, f"statevector_{idx}.npy")
-        sample_data = {
-            "sample_id": idx,
-            "statevector": np.load(statevector_path).tolist(),
-            "views": sample_views
-        }
+        statevector_path = os.path.join(statevectors_dir, f"statevector_{idx}.npz")
+        with np.load(statevector_path, allow_pickle=True) as sv:
+            sample_data = {
+                "sample_id": idx,
+                "statevector": sv,
+                "views": sample_views
+            }
 
         # Delete the statevector file to free up memory
         os.remove(statevector_path)
@@ -125,17 +126,15 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
 
         # Save progress periodically
         if idx % save_interval == 0:
-            save_progress(data_path, augmented_dataset, metadata_path, metadata)
+            save_progress(data_path, sample_data, metadata_path, metadata)
 
-    # Final save
-    save_progress(data_path, augmented_dataset, metadata_path, metadata)
     print("Augmented dataset generation completed.")
 
     # Cleanup
     if os.path.exists(statevectors_dir) and not os.listdir(statevectors_dir):
         os.rmdir(statevectors_dir)
 
-    return augmented_dataset, metadata
+    return metadata
     
 
 
@@ -157,9 +156,7 @@ def save_statevectors(statevectors, n_qubits, directory):
     print(f"Statevectors saved separately to directory {directory}\n")
 
     # Free up memory
-    del statevectors
-    del compressed_statevector
-    del sv
+    del statevectors, compressed_statevector, reduced_statevectors, sv
 
     return directory
 
@@ -210,7 +207,7 @@ def augment(sample, transformations, dictionary):
     return successful_transformations
 
 
-def save_progress(file_path, data, metadata_path, metadata):
+def save_progress(file_path, data_to_append, metadata_path, metadata):
     """Save the augmented dataset and progress log."""
 
     # Use a temporary file for safer incremental saving
@@ -218,7 +215,7 @@ def save_progress(file_path, data, metadata_path, metadata):
 
     try:
         print("\nSaving progress...")
-        save_to_file(file_path, data, '.pkl', temp_file_path)
+        append_sample_to_file(file_path, data_to_append)
         print(f"Saved {file_path} successfully.")
         save_to_file(metadata_path, metadata, '.json')
 
