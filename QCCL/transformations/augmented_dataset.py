@@ -129,9 +129,6 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
         # Delete the statevector file to free up memory
         os.remove(statevector_path)
 
-        # Append sample to file
-        append_sample_to_file(data_path, sample_data)
-
         # Update logs in metadata
         metadata["logs"]["samples"][f"{idx}"]["successfully_applied"] = successful_transformations
         metadata["logs"]["samples"][f"{idx}"]["successful_count"] += len(successful_transformations)
