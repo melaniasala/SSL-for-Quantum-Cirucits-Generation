@@ -26,7 +26,6 @@ transformation_pool = [
 
 def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None, chunk_size=None):
     """Main function to generate augmented dataset."""
-    sys.path.append("../../Data")
     
     if transformations is None:
         transformations = transformation_pool
