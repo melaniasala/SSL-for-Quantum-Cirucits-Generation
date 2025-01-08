@@ -24,9 +24,10 @@ transformation_pool = [
                 "swap_cnots"
                 ]
 
-def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None, chunk_size=None):
+def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None, chunk_size=None, start_idx=0):
     """Main function to generate augmented dataset."""
-    
+    sys.path.append('../../Data')
+
     if transformations is None:
         transformations = transformation_pool
 
@@ -39,7 +40,7 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
 
     # Load dataset in chunks if specified
     if chunk_size:
-        dataset = data["dataset"][:chunk_size].copy()
+        dataset = data["dataset"][start_idx : start_idx + chunk_size].copy()
     else:
         dataset = data["dataset"].copy()
     del data
@@ -50,7 +51,7 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
     os.makedirs(output_dir, exist_ok=True)
 
     # Save statevectors and free memory
-    statevectors_dir = save_statevectors(statevectors, n_qubits, output_dir)
+    statevectors_dir = save_statevectors(statevectors, n_qubits, output_dir, start_idx)
     del statevectors
 
     # Load or initialize metadata
@@ -77,18 +78,19 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
         }
 
     # Process samples
-    for idx in range(dataset_size):
+    for idx in range(start_idx, dataset_size):
         # Load next chunk if needed
-        if chunk_size and idx % chunk_size == 0 and idx > 0:
+        shifted_idx = idx - start_idx
+        if chunk_size and shifted_idx > 0 and shifted_idx%chunk_size == 0:
             chunk_start = idx
             chunk_end = min(idx + chunk_size, dataset_size)
             print("-" * 80)
-            print(f"Loading chunk {idx//chunk_size + 1}/{dataset_size//chunk_size} (from sample {chunk_start} to {chunk_end})...")
+            print(f"Loading chunk {idx//chunk_size + 1}/{dataset_size//chunk_size} (from sample {chunk_start+1} to {chunk_end+1})...")
             with open(input_file, 'rb') as f:
                 data = pickle.load(f)
             dataset = data["dataset"][chunk_start:chunk_end].copy()
             del data
-        sample = dataset[idx%chunk_size] if chunk_size else dataset[idx]
+        sample = dataset[shifted_idx%chunk_size] if chunk_size else dataset[idx]
 
         sample_id = f"q{n_qubits}_s{idx:02}"
         print("-" * 80)
@@ -166,14 +168,24 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
     
 
 
-def save_statevectors(statevectors, n_qubits, directory):
+def save_statevectors(statevectors, n_qubits, directory, start):
     """Save statevectors as a compressed .npz file and separate .npy files."""
-    # Save individual statevectors as .npy files in a directory
+    # Save individual statevectors as .npz files in a directory
     directory = os.path.join(directory, f"statevectors_{n_qubits}_qubits") if directory else f"statevectors_{n_qubits}_qubits"
     os.makedirs(directory, exist_ok=True)
+    if isinstance(statevectors, list):
+        pass
+    elif isinstance(statevectors, dict):
+        statevectors = list(statevectors.values())[0]
+    else:
+        raise TypeError("The 'statevectors' object must be either a list or a dictionary.")
+
     for idx, sv in enumerate(statevectors):
+        if idx < start:
+            continue
         compressed_statevector = np.array(sv, dtype=np.float16)
         np.savez_compressed(os.path.join(directory, f"statevector_{idx}.npz"), compressed_statevector)
+      
     print(f"Statevectors saved separately to directory {directory}\n")
 
     # Free up memory
