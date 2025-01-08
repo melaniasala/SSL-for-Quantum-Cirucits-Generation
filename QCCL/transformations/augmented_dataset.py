@@ -177,7 +177,7 @@ def save_statevectors(statevectors, n_qubits, directory):
             np.savez_compressed(os.path.join(directory, f"statevector_{idx}.npz"), compressed_statevector)
     if isinstance(statevectors, dict):
         statevectors_list = list(statevectors.values())[0]
-        for idx, sv in enumerate(statevectors_list
+        for idx, sv in enumerate(statevectors_list):
             compressed_statevector = np.array(sv, dtype=np.float16)
             np.savez_compressed(os.path.join(directory, f"statevector_{idx}.npz"), compressed_statevector)
     else:
