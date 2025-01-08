@@ -171,9 +171,18 @@ def save_statevectors(statevectors, n_qubits, directory):
     # Save individual statevectors as .npy files in a directory
     directory = os.path.join(directory, f"statevectors_{n_qubits}_qubits") if directory else f"statevectors_{n_qubits}_qubits"
     os.makedirs(directory, exist_ok=True)
-    for idx, sv in enumerate(statevectors):
-        compressed_statevector = np.array(sv, dtype=np.float16)
-        np.savez_compressed(os.path.join(directory, f"statevector_{idx}.npz"), compressed_statevector)
+    if isinstance(statevectors, list):
+        for idx, sv in enumerate(statevectors):
+            compressed_statevector = np.array(sv, dtype=np.float16)
+            np.savez_compressed(os.path.join(directory, f"statevector_{idx}.npz"), compressed_statevector)
+    if isinstance(statevectors, dict):
+        statevectors_list = list(statevectors.values())[0]
+        for idx, sv in enumerate(statevectors_list
+            compressed_statevector = np.array(sv, dtype=np.float16)
+            np.savez_compressed(os.path.join(directory, f"statevector_{idx}.npz"), compressed_statevector)
+    else:
+        raise TypeError("The 'statevectors' object must be either a list or a dictionary.")
+      
     print(f"Statevectors saved separately to directory {directory}\n")
 
     # Free up memory
