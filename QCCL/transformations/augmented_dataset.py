@@ -24,7 +24,7 @@ transformation_pool = [
                 "swap_cnots"
                 ]
 
-def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None, chunk_size=None, start_idx=0, find_all=True):
+def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None, chunk_size=None, start_idx=0, end_idx=None, find_all=True):
     """Main function to generate augmented dataset."""
     sys.path.append('../../Data')
 
@@ -78,7 +78,8 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
         }
 
     # Process samples
-    for idx in range(start_idx, dataset_size):
+    end_idx = end_idx or dataset_size
+    for idx in range(start_idx, end_idx):
         # Load next chunk if needed
         shifted_idx = idx - start_idx
         if chunk_size and shifted_idx > 0 and shifted_idx%chunk_size == 0:
