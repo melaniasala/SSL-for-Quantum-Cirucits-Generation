@@ -16,7 +16,7 @@ class TransformationError(Exception):
 class CircuitTransformation:
     """Base class for all quantum circuit transformations represented as graphs."""
 
-    def __init__(self, qcg: QuantumCircuitGraph):
+    def __init__(self, qcg: QuantumCircuitGraph, find_all=True):
         self.circuit, self.graph = qcg.quantum_circuit, qcg.graph
         self.num_qubits = self.circuit.num_qubits
         self.gate_type_map = qcg.GATE_TYPE_MAP
@@ -25,6 +25,7 @@ class CircuitTransformation:
         self.matching_key = None  # Key of the matching subgraph (not used for all transformations)
         self.pattern_subgraph = None  # Pattern subgraph to be matched
         self.replacement = None  # Replacement subgraph
+        self.find_all = find_all  # Flag to find all matching subgraphs: True for all, False for stopping at the first match found for each pattern
 
         self.gate_pool = [XGate(), HGate(), CXGate(), ZGate(), TGate()] # Pool of available gates
 
@@ -49,7 +50,13 @@ class CircuitTransformation:
         raise NotImplementedError("Subclasses must implement this method.")
 
     def find_matching_subgraph(self, return_all=False):
-        """Find matching subgraphs (pattern) in the graph."""
+        """
+        Find matching subgraphs (pattern) in the graph.
+
+        Args:
+            return_all (bool): If True, return matches for all matching patterns;
+                            otherwise, return matches for the first pattern found.
+        """
         if self.pattern_subgraph is None:
             # No pattern means transformation applies everywhere, no need to search
             return
@@ -62,15 +69,18 @@ class CircuitTransformation:
             for key, subgraph in self.pattern_subgraph:
                 matcher = DiGraphMatcher(self.graph, subgraph, 
                                          node_match=lambda n1, n2: n1['type'] == n2['type'] and n1['ctrl_trgt'] == n2['ctrl_trgt'])
-                matching = list(matcher.subgraph_isomorphisms_iter()) 
+                if self.find_all:
+                    matching = list(matcher.subgraph_isomorphisms_iter())
+                    # Shuffle the matching subgraphs to avoid bias and store a single match
+                    random.shuffle(matching)
+                else:
+                    matching = list(next(matcher.subgraph_isomorphisms_iter(), None))
+
                 if not matching or matching == []:
                     continue
-
-                # Shuffle the matching subgraphs to avoid bias and store a single match
-                random.shuffle(matching)
+                
                 matching = self.graph.subgraph(matching[0].keys())
                 # matching_subgraphs is a list of dictionaries, where each dictionary maps nodes in the pattern to nodes in the graph (by node labels, graph_label:pattern_label)
-                
                 if matching and not return_all:
                     matching_subgraphs = matching
                     matching_key = key

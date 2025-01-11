@@ -24,7 +24,7 @@ transformation_pool = [
                 "swap_cnots"
                 ]
 
-def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None, chunk_size=None, start_idx=0):
+def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None, chunk_size=None, start_idx=0, find_all=True):
     """Main function to generate augmented dataset."""
     sys.path.append('../../Data')
 
@@ -146,7 +146,7 @@ def generate_augmented_dataset(input_file, transformations=None, save_interval=1
         metadata["dataset_info"]["num_views"] += 1
 
         # Apply transformations
-        successful_transformations = augment(sample, transformations, sample_id, sample_dir, metadata)
+        successful_transformations = augment(sample, transformations, sample_id, sample_dir, metadata, find_all)
 
         # Update logs in metadata
         metadata["logs"]["processed_samples"][f"{idx}"]["successfully_applied"] = successful_transformations
@@ -194,7 +194,7 @@ def save_statevectors(statevectors, n_qubits, directory, start):
     return directory
 
 
-def augment(sample, transformations, sample_id, sample_dir, metadata):
+def augment(sample, transformations, sample_id, sample_dir, metadata, find_all=True):
     """Apply transformations to a sample and log results."""
     successful_transformations = {}
     view_idx = 1
@@ -203,7 +203,7 @@ def augment(sample, transformations, sample_id, sample_dir, metadata):
     for t_1 in tqdm(transformations, desc="Producing augmented views"):
         try:
             with contextlib.redirect_stdout(StringIO()), contextlib.redirect_stderr(StringIO()):
-                transformed = CompositeTransformation(sample, [t_1]).apply()
+                transformed = CompositeTransformation(sample, [t_1], find_all=find_all).apply()
             view_id = f"{sample_id}_v{view_idx:03}"
             view_filename = f"{view_id}.pkl"
             view_path = os.path.join(sample_dir, view_filename)
@@ -230,7 +230,7 @@ def augment(sample, transformations, sample_id, sample_dir, metadata):
         for t_2 in transformations:
             try:
                 with contextlib.redirect_stdout(StringIO()), contextlib.redirect_stderr(StringIO()):
-                    transformed = CompositeTransformation(sample, [t_1, t_2]).apply()
+                    transformed = CompositeTransformation(sample, [t_1, t_2], find_all=find_all).apply()
                 view_id = f"{sample_id}_v{view_idx:03}"
                 view_filename = f"{view_id}.pkl"
                 view_path = os.path.join(sample_dir, view_filename)

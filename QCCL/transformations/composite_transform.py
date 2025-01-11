@@ -6,7 +6,7 @@ from .factory import TransformationFactory
 class CompositeTransformation(CircuitTransformation):
     """Applies a sequence of transformations to a quantum circuit graph."""
 
-    def __init__(self, qcg: QuantumCircuitGraph, transformations: list[str]):
+    def __init__(self, qcg: QuantumCircuitGraph, transformations: list[str], find_all=True):
         """
         Initialize with a QuantumCircuitGraph and a list of transformation types.
         
@@ -14,7 +14,7 @@ class CompositeTransformation(CircuitTransformation):
         - qcg (QuantumCircuitGraph): The quantum circuit graph to transform.
         - transformations (list of str): List of transformation types to apply sequentially.
         """
-        super().__init__(qcg)
+        super().__init__(qcg, find_all)
         self.qcg = qcg # maybe this could be stored in the parent class... instead of separate circuit and graph
         self.transformations = transformations
 
