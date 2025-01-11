@@ -24,7 +24,7 @@ transformation_pool = [
                 "swap_cnots"
                 ]
 
-def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None, chunk_size=None, start_idx=0, end_idx=None, find_all=True):
+def generate_augmented_dataset(input_file, transformations=None, save_interval=1, output_dir=None, chunk_size=None, start_idx=0, end_idx=None, find_all=False):
     """Main function to generate augmented dataset."""
     sys.path.append('../../Data')
 
@@ -195,7 +195,7 @@ def save_statevectors(statevectors, n_qubits, directory, start):
     return directory
 
 
-def augment(sample, transformations, sample_id, sample_dir, metadata, find_all=True):
+def augment(sample, transformations, sample_id, sample_dir, metadata, find_all=False):
     """Apply transformations to a sample and log results."""
     successful_transformations = {}
     view_idx = 1

@@ -16,7 +16,7 @@ class TransformationError(Exception):
 class CircuitTransformation:
     """Base class for all quantum circuit transformations represented as graphs."""
 
-    def __init__(self, qcg: QuantumCircuitGraph, find_all=True):
+    def __init__(self, qcg: QuantumCircuitGraph, find_all=False):
         self.circuit, self.graph = qcg.quantum_circuit, qcg.graph
         self.num_qubits = self.circuit.num_qubits
         self.gate_type_map = qcg.GATE_TYPE_MAP
@@ -74,13 +74,16 @@ class CircuitTransformation:
                     # Shuffle the matching subgraphs to avoid bias and store a single match
                     random.shuffle(matching)
                 else:
+                    tentatives = 4
                     # Find the first valid match
                     match_found = False
-                    while not match_found:
+                    it=0
+                    while not match_found and it<tentatives:
                         match = next(matcher.subgraph_isomorphisms_iter(), None)
                         if match is not None:
                             matching = [match]
                             match_found = True
+                        it+=1
                     if not match_found:
                         matching = []                                                              
 
