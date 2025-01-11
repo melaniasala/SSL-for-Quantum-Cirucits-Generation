@@ -74,7 +74,7 @@ class CircuitTransformation:
                     # Shuffle the matching subgraphs to avoid bias and store a single match
                     random.shuffle(matching)
                 else:
-                    tentatives = 4
+                    tentatives = 3
                     # Find the first valid match
                     match_found = False
                     it=0
