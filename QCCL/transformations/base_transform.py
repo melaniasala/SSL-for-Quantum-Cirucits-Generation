@@ -74,18 +74,9 @@ class CircuitTransformation:
                     # Shuffle the matching subgraphs to avoid bias and store a single match
                     random.shuffle(matching)
                 else:
-                    tentatives = 3
-                    # Find the first valid match
-                    match_found = False
-                    it=0
-                    while not match_found and it<tentatives:
-                        match = next(matcher.subgraph_isomorphisms_iter(), None)
-                        if match is not None:
-                            matching = [match]
-                            match_found = True
-                        it+=1
-                    if not match_found:
-                        matching = []                                                              
+                    matching = next(matcher.subgraph_isomorphisms_iter(), None)
+                    if matching:
+                        matching = [matching]                                                         
 
                 if not matching or matching == []:
                     continue
